@@ -184,4 +184,15 @@ static void IOS_MainFBSize(int *w, int *h)
       #endif
 """, "_hAmp11lib = CDynamicLoader::GetInstance(NULL);")
 
+    # TFE: lighting tables defined in a header included by both the Game and
+    # Entities modules; give each its own copy as the separate libraries did.
+    p = src / "Entities/Common/LightFixes.h"
+    if p.exists():
+        t = p.read_text()
+        if "static FLOAT _f" not in t:
+            import re as _re
+            t, n = _re.subn(r"^FLOAT (_f\w+Coordinates\[)", r"static FLOAT \1", t, flags=_re.M)
+            assert n == 10, n
+            p.write_text(t)
+
     print(game, "patched")
