@@ -47,27 +47,7 @@ jobs:
 
     - name: Build SDL2 and gl4es for iOS
       if: steps.deps.outputs.cache-hit != 'true'
-      run: |
-        set -e
-        DEPS=$PWD/deps
-        IOSFLAGS="-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=$IOS_MIN -DCMAKE_BUILD_TYPE=Release -G Ninja"
-
-        git clone --depth 1 -b $SDL_TAG https://github.com/libsdl-org/SDL.git /tmp/SDL
-        cmake -S /tmp/SDL -B /tmp/SDL/build $IOSFLAGS \
-          -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF -DSDL_HIDAPI=OFF \
-          -DCMAKE_INSTALL_PREFIX=$DEPS
-        cmake --build /tmp/SDL/build
-        cmake --install /tmp/SDL/build
-
-        git clone https://github.com/ptitSeb/gl4es.git /tmp/gl4es
-        git -C /tmp/gl4es checkout $GL4ES_SHA
-        cmake -S /tmp/gl4es -B /tmp/gl4es/build $IOSFLAGS \
-          -DNOX11=ON -DNOEGL=ON -DSTATICLIB=ON -DNO_LOADER=ON -DNO_INIT_CONSTRUCTOR=ON -DDEFAULT_ES=2
-        cmake --build /tmp/gl4es/build
-        mkdir -p $DEPS/gl4es/lib
-        cp -R /tmp/gl4es/include $DEPS/gl4es/
-        find /tmp/gl4es -name "libGL.a" -exec cp {} $DEPS/gl4es/lib/ \;
-        ls -la $DEPS/lib $DEPS/gl4es/lib
+      run: ios/ci_run.sh "iOS dependencies" ios/build_deps.sh "$PWD/deps"
 
     - name: Build entity compiler (host)
       run: |
@@ -82,7 +62,7 @@ jobs:
     - name: Configure
       run: |
         DEPS=$PWD/deps
-        cmake -S ${{ matrix.game }}/Sources -B build -G Ninja \
+        ios/ci_run.sh "Configure ${{ matrix.game }}" cmake -S ${{ matrix.game }}/Sources -B build -G Ninja \
           -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 \
           -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=$IOS_MIN \
           -DCMAKE_BUILD_TYPE=Release \
@@ -97,7 +77,7 @@ jobs:
           -DSE_IOS_BUILD_NUMBER=${{ github.run_number }}
 
     - name: Build
-      run: cmake --build build -- -k 0
+      run: ios/ci_run.sh "Build ${{ matrix.game }}" cmake --build build -- -k 0
 
     - name: Package .ipa
       run: |
