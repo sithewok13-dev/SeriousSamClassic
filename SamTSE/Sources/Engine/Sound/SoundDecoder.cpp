@@ -218,7 +218,11 @@ void CSoundDecoder::InitPlugins(void)
           #define VORBISLIB "vorbisfile"
          #endif
        #endif
+       #ifdef STATICALLY_LINKED
+       _hOV = CDynamicLoader::GetInstance(NULL);
+       #else
        _hOV = CDynamicLoader::GetInstance(VORBISLIB);
+       #endif
        if( _hOV->GetError() != NULL) {
          ThrowF_t(TRANS("Cannot load " VORBISLIB " shared library: %s."), _hOV->GetError());
        }
@@ -237,7 +241,11 @@ void CSoundDecoder::InitPlugins(void)
   try {
     // load amp11lib
     if (_hAmp11lib==NULL) {
+      #ifdef STATICALLY_LINKED
+      _hAmp11lib = CDynamicLoader::GetInstance(NULL);
+      #else
       _hAmp11lib = CDynamicLoader::GetInstance("amp11lib");
+      #endif
       if( _hAmp11lib->GetError() != NULL) {
         ThrowF_t(TRANS("Cannot load amp11lib shared library: %s"), _hAmp11lib->GetError());
       }

@@ -116,6 +116,13 @@ void *CUnixDynamicLoader::FindSymbol(const char *sym)
 
 void CUnixDynamicLoader::DoOpen(const char *lib)
 {
+    if (lib == NULL) {  // the main program (everything is linked in statically)
+        module = ::dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);
+        if (module == NULL) {
+            SetError();
+        }
+        return;
+    }
     #ifdef PLATFORM_FREEBSD
     dlerror(); // need for clean Undefined symbol "_nss_cache_cycle_prevention_function" message
     #endif

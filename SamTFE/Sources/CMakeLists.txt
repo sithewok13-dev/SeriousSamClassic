@@ -108,6 +108,26 @@ endif()
 
 option(TFE "Compile a The First Encounter version" FALSE)
 
+# >>> SE_STATIC (iOS port)
+# Link Engine, Game, Entities, Shaders and decoders into one executable.
+# Required on iOS (no loading of our own shared libraries at runtime).
+if(IOS)
+  set(SE_STATIC_DEFAULT ON)
+else()
+  set(SE_STATIC_DEFAULT OFF)
+endif()
+option(SE_STATIC "Statically link all game modules into the executable" ${SE_STATIC_DEFAULT})
+if(SE_STATIC)
+  set(SE_LIBTYPE STATIC)
+  add_definitions(-DSTATICALLY_LINKED=1)
+else()
+  set(SE_LIBTYPE SHARED)
+endif()
+if(IOS)
+  add_definitions(-DPLATFORM_IOS=1)
+endif()
+# <<< SE_STATIC
+
 if(INTERNAL_NAME STREQUAL "serioussam")
  add_definitions(-DFIRST_ENCOUNTER=1)
  set(MP "")
@@ -362,7 +382,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_
 	add_compile_options(-pipe)
 	add_compile_options(-fPIC)
 	add_compile_options(-fms-extensions)
-	if(NOT PANDORA AND NOT PYRA AND NOT RPI4 AND NOT (MACOSX AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64"))
+	if(NOT IOS AND NOT PANDORA AND NOT PYRA AND NOT RPI4 AND NOT (MACOSX AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64"))
 		if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "riscv64")
 			add_compile_options(-march=rv64gc)
 		    add_compile_options(-ftree-vectorize)
@@ -395,7 +415,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_
 		endif()
 		add_compile_options(-fsigned-char)
 	endif()
-    if(NOT PYRA AND NOT PANDORA AND ${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "arm*")
+    if(NOT IOS AND NOT PYRA AND NOT PANDORA AND ${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "arm*")
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm.*|ARM.*)")  # 32bit
             add_compile_options(-march=armv8-a+crc)
 		    add_compile_options(-mfpu=neon-fp-armv8)
@@ -954,7 +974,7 @@ add_custom_target(ParseEntities${MP} DEPENDS ${ENTITIES_H})
 
 set(ENTITIESMPLIB "Entities${MP}${DEBUGSUFFIX}")
 if(INTERNAL_NAME STREQUAL "serioussam")
- add_library(${ENTITIESMPLIB} SHARED
+ add_library(${ENTITIESMPLIB} ${SE_LIBTYPE}
      ${ENTITIES_CPP}
      Entities/Common/Common.cpp
      Entities/Common/Debris.cpp
@@ -964,7 +984,7 @@ if(INTERNAL_NAME STREQUAL "serioussam")
      Entities/Common/HUD.cpp
  )
 else()
- add_library(${ENTITIESMPLIB} SHARED
+ add_library(${ENTITIESMPLIB} ${SE_LIBTYPE}
      ${ENTITIES_CPP}
      EntitiesMP/Common/Common.cpp
  	 EntitiesMP/Common/Particles.cpp
@@ -974,13 +994,13 @@ else()
  )
 endif()
 
-if(MACOSX)
+if(MACOSX AND NOT SE_STATIC)
     target_link_libraries(${ENTITIESMPLIB} "-undefined dynamic_lookup")
 endif()
 add_dependencies(${ENTITIESMPLIB} ParseEntities${MP})
 
 set(GAMEMPLIB "Game${MP}${DEBUGSUFFIX}")
-add_library(${GAMEMPLIB} SHARED
+add_library(${GAMEMPLIB} ${SE_LIBTYPE}
     GameMP/Camera.cpp
     GameMP/CompMessage.cpp
     GameMP/CompModels.cpp
@@ -994,14 +1014,14 @@ add_library(${GAMEMPLIB} SHARED
     GameMP/SessionProperties.cpp
     GameMP/WEDInterface.cpp
 )
-if(MACOSX)
+if(MACOSX AND NOT SE_STATIC)
     target_link_libraries(${GAMEMPLIB} "-undefined dynamic_lookup")
 endif()
 add_dependencies(${GAMEMPLIB} ParseEntities${MP})
 
 if(NOT XPLUS)
 set(SHADERSLIB "Shaders${MP}${DEBUGSUFFIX}")
-add_library(${SHADERSLIB} SHARED
+add_library(${SHADERSLIB} ${SE_LIBTYPE}
     Shaders/AddShader.cpp
     Shaders/AddShaderDS.cpp
     Shaders/BaseShader.cpp
@@ -1023,7 +1043,7 @@ add_library(${SHADERSLIB} SHARED
     Shaders/StdH.cpp
     Shaders/Translucent.cpp
 )
-if(MACOSX)
+if(MACOSX AND NOT SE_STATIC)
     target_link_libraries(${SHADERSLIB} "-undefined dynamic_lookup")
 endif()
 add_dependencies(${SHADERSLIB} ParseEntities${MP})
@@ -1272,10 +1292,10 @@ set(ENGINE_SRCS
     ${ZLIB_SRCS}
 )
 set(ENGINELIB "Engine${MP}${DEBUGSUFFIX}")
-add_library(${ENGINELIB} SHARED
+add_library(${ENGINELIB} ${SE_LIBTYPE}
      ${ENGINE_SRCS}
 )
-if(MACOSX)
+if(MACOSX AND NOT SE_STATIC)
     target_link_libraries(${ENGINELIB} "-undefined dynamic_lookup")
 endif()
 add_dependencies(${ENGINELIB} ParseEntities${MP})
@@ -1284,7 +1304,7 @@ if(FREEBSD)
 target_link_libraries(${ENGINELIB} ${SDL2_LIBRARY})
 target_link_libraries(${ENGINELIB} ${ZLIB_LIBRARIES})
 endif()
-if(MACOSX)
+if(MACOSX AND NOT SE_STATIC)
     if(USE_SYSTEM_SDL2) # use sdl2 framework on system
       target_link_libraries(${ENGINELIB} ${SDL2_LIBRARY})
     else() # use local libsdl2
@@ -1317,7 +1337,9 @@ add_executable(SeriousSam${MP}
     SeriousSam/MenuGadgets.cpp
     SeriousSam/MenuPrinting.cpp
 )
-target_link_libraries(SeriousSam${MP} ${ENGINELIB})
+if(NOT SE_STATIC)
+  target_link_libraries(SeriousSam${MP} ${ENGINELIB})
+endif()
 add_dependencies(SeriousSam${MP} ParseEntities${MP})
 # Make symbols in the main executable available to dynamic objects
 set_target_properties(SeriousSam${MP} PROPERTIES ENABLE_EXPORTS ON)
@@ -1378,10 +1400,10 @@ set(AMP11LIB_SOURCE_FILES
     amp11lib/ampdec.h
     amp11lib/ampsynth.cpp)
 
-add_library(amp11lib${MP} SHARED ${AMP11LIB_SOURCE_FILES})
+add_library(amp11lib${MP} ${SE_LIBTYPE} ${AMP11LIB_SOURCE_FILES})
 endif()
 
-if(MACOSX)
+if(MACOSX AND NOT SE_STATIC)
     target_link_libraries(SeriousSam${MP} ${ZLIB_LIBRARIES})
     if(USE_SYSTEM_SDL2) # use sdl2 framework on system
       target_link_libraries(SeriousSam${MP} ${SDL2_LIBRARY})
@@ -1402,7 +1424,7 @@ if(MACOSX)
     endif()
 endif()
 
-if(LINUX)
+if(LINUX AND NOT SE_STATIC)
     set_target_properties(SeriousSam${MP} PROPERTIES LINK_FLAGS "-Wl,${RPATH_SETTINGS}")
     target_link_libraries(SeriousSam${MP} "m")
     target_link_libraries(SeriousSam${MP} "dl")
@@ -1453,23 +1475,79 @@ endif()
 # Set output name for not local installation
 if(LOCAL_INSTALL)
  set_target_properties(SeriousSam${MP} PROPERTIES OUTPUT_NAME "SeriousSam")
- set_target_properties(DedicatedServer${MP}  PROPERTIES OUTPUT_NAME "DedicatedServer")
- set_target_properties(MakeFONT${MP} PROPERTIES OUTPUT_NAME "MakeFONT")
- set_target_properties(TEXConv${MP} PROPERTIES OUTPUT_NAME "TEXConv")
+ if(TARGET DedicatedServer${MP})
+  set_target_properties(DedicatedServer${MP}  PROPERTIES OUTPUT_NAME "DedicatedServer")
+ endif()
+ if(TARGET MakeFONT${MP})
+  set_target_properties(MakeFONT${MP} PROPERTIES OUTPUT_NAME "MakeFONT")
+ endif()
+ if(TARGET TEXConv${MP})
+  set_target_properties(TEXConv${MP} PROPERTIES OUTPUT_NAME "TEXConv")
+ endif()
  set_target_properties(amp11lib${MP} PROPERTIES OUTPUT_NAME "amp11lib${DEBUGSUFFIX}")
  set_target_properties(${SHADERSLIBSE} PROPERTIES OUTPUT_NAME "Shaders${DEBUGSUFFIX}")
 else()
  set_target_properties(SeriousSam${MP} PROPERTIES OUTPUT_NAME "${INTERNAL_NAME}")
- set_target_properties(DedicatedServer${MP}  PROPERTIES OUTPUT_NAME "${INTERNAL_NAME}-ded")
- set_target_properties(MakeFONT${MP} PROPERTIES OUTPUT_NAME "${INTERNAL_NAME}-mkfont")
- set_target_properties(TEXConv${MP} PROPERTIES OUTPUT_NAME "${INTERNAL_NAME}-texconv")
+ if(TARGET DedicatedServer${MP})
+  set_target_properties(DedicatedServer${MP}  PROPERTIES OUTPUT_NAME "${INTERNAL_NAME}-ded")
+ endif()
+ if(TARGET MakeFONT${MP})
+  set_target_properties(MakeFONT${MP} PROPERTIES OUTPUT_NAME "${INTERNAL_NAME}-mkfont")
+ endif()
+ if(TARGET TEXConv${MP})
+  set_target_properties(TEXConv${MP} PROPERTIES OUTPUT_NAME "${INTERNAL_NAME}-texconv")
+ endif()
  set_target_properties(amp11lib${MP} PROPERTIES OUTPUT_NAME "amp11lib")
  set_target_properties(${SHADERSLIB} PROPERTIES OUTPUT_NAME "Shaders")
 endif()
 endif() # NOT XPLUS
 
+
+# >>> SE_STATIC (iOS port)
+if(SE_STATIC AND NOT XPLUS)
+  # ogg/vorbis decoders, normally loaded at runtime from the system
+  set(SE_VORBIS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/External/libvorbis/lib)
+  set(SE_OGG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/External/libogg/src)
+  add_library(se_vorbis${MP} STATIC
+    ${SE_OGG_DIR}/bitwise.c ${SE_OGG_DIR}/framing.c
+    ${SE_VORBIS_DIR}/analysis.c ${SE_VORBIS_DIR}/bitrate.c ${SE_VORBIS_DIR}/block.c
+    ${SE_VORBIS_DIR}/codebook.c ${SE_VORBIS_DIR}/envelope.c ${SE_VORBIS_DIR}/floor0.c
+    ${SE_VORBIS_DIR}/floor1.c ${SE_VORBIS_DIR}/info.c ${SE_VORBIS_DIR}/lookup.c
+    ${SE_VORBIS_DIR}/lpc.c ${SE_VORBIS_DIR}/lsp.c ${SE_VORBIS_DIR}/mapping0.c
+    ${SE_VORBIS_DIR}/mdct.c ${SE_VORBIS_DIR}/psy.c ${SE_VORBIS_DIR}/registry.c
+    ${SE_VORBIS_DIR}/res0.c ${SE_VORBIS_DIR}/sharedbook.c ${SE_VORBIS_DIR}/smallft.c
+    ${SE_VORBIS_DIR}/synthesis.c ${SE_VORBIS_DIR}/vorbisfile.c ${SE_VORBIS_DIR}/window.c
+  )
+  target_include_directories(se_vorbis${MP} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/External/libogg/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/External/libvorbis/include
+    ${SE_VORBIS_DIR})
+  target_compile_options(se_vorbis${MP} PRIVATE -w)
+
+  # Everything is looked up by name at runtime (entity classes, GAME_Create,
+  # shaders, decoder functions), so keep every object file.
+  set(SE_WHOLE ${ENGINELIB} ${ENTITIESMPLIB} ${GAMEMPLIB} ${SHADERSLIB} se_vorbis${MP})
+  if(BUILD_AMP11LIB)
+    list(APPEND SE_WHOLE amp11lib${MP})
+  endif()
+  foreach(_lib ${SE_WHOLE})
+    target_link_libraries(SeriousSam${MP} "$<LINK_LIBRARY:WHOLE_ARCHIVE,${_lib}>")
+  endforeach()
+  target_link_libraries(SeriousSam${MP} engine_safemath${MP} ${SDL2_LIBRARY} ${ZLIB_LIBRARIES})
+  if(NOT APPLE)
+    target_link_libraries(SeriousSam${MP} m dl pthread)
+  endif()
+endif()
+
+if(IOS AND NOT XPLUS)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/../../ios/ios_app.cmake)
+endif()
+# <<< SE_STATIC
+
 # RAKE! Install Section.
-if(LOCAL_INSTALL AND NOT XPLUS)
+if(IOS)
+  # app bundle is packaged by ios/ios_app.cmake
+elseif(LOCAL_INSTALL AND NOT XPLUS)
 if(DEBUG) # RAKE! Will this work with TFE?
     install(TARGETS SeriousSam${MP} ${SHADERSLIB} ${GAMEMPLIB} ${ENTITIESMPLIB}
             RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/Bin"
@@ -1592,7 +1670,7 @@ endif()
 
 # RAKE! If CMAKE_INSTALL_PREFIX was set during config then its not a local install
 # and SE1_10.gro needs to be installed to Games root dir.
-if(NOT LOCAL_INSTALL AND NOT XPLUS)
+if(NOT IOS AND NOT LOCAL_INSTALL AND NOT XPLUS)
     install(FILES ${CMAKE_ADD_TARGET_DIR}/../SE1_10b.gro
             DESTINATION "${CMAKE_INSTALL_PREFIX}/share/${INTERNAL_NAME}"
             PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
