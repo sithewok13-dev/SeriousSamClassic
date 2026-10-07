@@ -9,7 +9,9 @@ log=$(mktemp)
 status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then
   {
-    grep -nE "error|Error|ERROR|undefined|Undefined|fatal|FAILED|not found|No such" "$log" | grep -v "Werror\|-Wno-error" | head -60
+    grep -nE "error|Error|ERROR|undefined|fatal|FAILED|not found|No such" "$log" | grep -v "Werror\|-Wno-error\|warning:" | head -40
+    echo "----- undefined symbols -----"
+    grep -A 40 "Undefined symbols" "$log" | grep -E '^ *"|referenced from' | grep '"' | sort -u | head -60
     echo "----- last lines -----"
     tail -40 "$log"
   } | cut -c1-400 > "$log.sum"

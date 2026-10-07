@@ -51,6 +51,7 @@ target_link_libraries(${SE_EXE}
   "-framework Metal"
   "-weak_framework CoreHaptics"
   "-weak_framework UniformTypeIdentifiers"
+  iconv
 )
 
 # Files the engine needs next to the game data (part of the open-source

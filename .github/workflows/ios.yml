@@ -38,9 +38,9 @@ jobs:
         echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
         echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
 
-    - name: Cache iOS dependencies
+    - name: Restore iOS dependencies
       id: deps
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: deps
         key: ios-deps-${{ env.SDL_TAG }}-${{ env.GL4ES_SHA }}-${{ env.IOS_MIN }}-v1
@@ -48,6 +48,14 @@ jobs:
     - name: Build SDL2 and gl4es for iOS
       if: steps.deps.outputs.cache-hit != 'true'
       run: ios/ci_run.sh "iOS dependencies" ios/build_deps.sh "$PWD/deps"
+
+    - name: Save iOS dependencies
+      if: steps.deps.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      continue-on-error: true  # both games build them; only one save can win
+      with:
+        path: deps
+        key: ${{ steps.deps.outputs.cache-primary-key }}
 
     - name: Build entity compiler (host)
       run: |
