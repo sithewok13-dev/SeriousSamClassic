@@ -19,9 +19,13 @@ cmake --install "$WORK/SDL/build"
 # --- gl4es (desktop OpenGL 1.x on top of OpenGL ES 2)
 git clone https://github.com/ptitSeb/gl4es.git "$WORK/gl4es"
 git -C "$WORK/gl4es" checkout "$GL4ES_SHA"
+# Apple's linker has no symbol aliases: turn the two AliasDecl uses into wrappers
+sed -i '' -E 's/^AliasDecl\(void,(gl4es_gl[A-Za-z]+Statei),\(GLenum array, GLuint index\),(gl4es_gl[A-Za-z]+)\);/void APIENTRY_GL4ES \1(GLenum array, GLuint index) { \2(array, index); }/' \
+  "$WORK/gl4es/src/gl/directstate.c"
+! grep -n "^AliasDecl" "$WORK/gl4es/src/gl/directstate.c"
 cmake -S "$WORK/gl4es" -B "$WORK/gl4es/build" "${IOSFLAGS[@]}" \
   -DNOX11=ON -DNOEGL=ON -DSTATICLIB=ON -DNO_LOADER=ON -DNO_INIT_CONSTRUCTOR=ON -DDEFAULT_ES=2
-cmake --build "$WORK/gl4es/build"
+cmake --build "$WORK/gl4es/build" -- -k 0
 mkdir -p "$DEPS/gl4es/lib"
 cp -R "$WORK/gl4es/include" "$DEPS/gl4es/"
 find "$WORK/gl4es" -name "libGL.a" -exec cp {} "$DEPS/gl4es/lib/" \;
