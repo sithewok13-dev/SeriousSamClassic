@@ -51,3 +51,42 @@ void IOS_InstallBundledFile(const char *strName)
   if (fDst) fclose(fDst);
   if (fSrc) fclose(fSrc);
 }
+
+/* iOS kills apps that touch OpenGL while in the background, so the main
+   loop parks here (pausing a single-player game first) until we're back. */
+static volatile int _bInBackground = 0;
+
+static int SDLCALL IOS_AppEventWatch(void *pUser, SDL_Event *pEvent)
+{
+  (void) pUser;
+  switch (pEvent->type) {
+  case SDL_APP_WILLENTERBACKGROUND:
+  case SDL_APP_DIDENTERBACKGROUND:
+    _bInBackground = 1;
+    break;
+  case SDL_APP_DIDENTERFOREGROUND:
+    _bInBackground = 0;
+    break;
+  default:
+    break;
+  }
+  return 1;
+}
+
+int IOS_IsInBackground(void)
+{
+  static int bWatching = 0;
+  if (!bWatching) {
+    SDL_AddEventWatch(IOS_AppEventWatch, NULL);
+    bWatching = 1;
+  }
+  return _bInBackground;
+}
+
+void IOS_WaitForForeground(void)
+{
+  while (_bInBackground) {
+    SDL_Delay(100);
+    SDL_PumpEvents();
+  }
+}

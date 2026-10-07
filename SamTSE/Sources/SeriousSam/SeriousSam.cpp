@@ -32,6 +32,8 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <fcntl.h>
 #ifdef PLATFORM_IOS
 #include <SDL_main.h>
+extern "C" int IOS_IsInBackground(void);
+extern "C" void IOS_WaitForForeground(void);
 #endif
 #include <sys/stat.h>
 #include <Engine/CurrentVersion.h>
@@ -1208,6 +1210,14 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
   // while it is still running
   while( _bRunning && _fnmModToLoad=="")
   {
+#ifdef PLATFORM_IOS
+    if (IOS_IsInBackground()) {
+      if (_gmRunningGameMode==GM_SINGLE_PLAYER && !_pNetwork->IsPaused()) {
+        _pNetwork->TogglePause();
+      }
+      IOS_WaitForForeground();
+    }
+#endif
     // while there are any messages in the message queue
     MSG msg;
     while( PeekMessage( &msg, NULL, 0, 0, PM_REMOVE)) {

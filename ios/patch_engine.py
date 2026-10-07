@@ -195,4 +195,25 @@ static void IOS_MainFBSize(int *w, int *h)
             assert n == 10, n
             p.write_text(t)
 
+    # park the main loop while the app is in the background (no GL allowed)
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, "#include <SDL_main.h>\n#endif\n",
+"""#include <SDL_main.h>
+extern "C" int IOS_IsInBackground(void);
+extern "C" void IOS_WaitForForeground(void);
+#endif
+""", "IOS_IsInBackground(void);")
+    sub(p, '  while( _bRunning && _fnmModToLoad=="")\n  {\n',
+"""  while( _bRunning && _fnmModToLoad=="")
+  {
+#ifdef PLATFORM_IOS
+    if (IOS_IsInBackground()) {
+      if (_gmRunningGameMode==GM_SINGLE_PLAYER && !_pNetwork->IsPaused()) {
+        _pNetwork->TogglePause();
+      }
+      IOS_WaitForForeground();
+    }
+#endif
+""", "IOS_WaitForForeground();\n    }")
+
     print(game, "patched")
