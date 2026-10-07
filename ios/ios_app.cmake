@@ -35,7 +35,11 @@ set_target_properties(${SE_EXE} PROPERTIES
   XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
 )
 
+# SDL2main supplies main() on iOS (starts UIKit, then calls our SDL_main)
+get_filename_component(SE_SDL2_LIBDIR ${SDL2_LIBRARY} DIRECTORY)
+
 target_link_libraries(${SE_EXE}
+  ${SE_SDL2_LIBDIR}/libSDL2main.a
   ${GL4ES_LIBRARY}
   "-framework Foundation"
   "-framework UIKit"
