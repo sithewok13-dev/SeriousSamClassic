@@ -120,6 +120,7 @@ option(SE_STATIC "Statically link all game modules into the executable" ${SE_STA
 if(SE_STATIC)
   set(SE_LIBTYPE STATIC)
   add_definitions(-DSTATICALLY_LINKED=1)
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../ios/include)  # bundled ogg config
 else()
   set(SE_LIBTYPE SHARED)
 endif()
@@ -510,8 +511,10 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_
 		add_definitions(-DPLATFORM_UNIX=1)
     		add_definitions(-DPLATFORM_MACOSX=1)
     		add_definitions(-DPRAGMA_ONCE=1)
-    		include_directories("/usr/local/include")
-		include_directories("/usr/X11/include/")
+    		if(NOT IOS)  # host headers must not leak into the iOS build
+    		  include_directories("/usr/local/include")
+		  include_directories("/usr/X11/include/")
+    		endif()
 	elseif(WINDOWS)
 		add_definitions(-DPLATFORM_WIN32=1)
     		add_definitions(-DPRAGMA_ONCE=1)
@@ -1521,6 +1524,7 @@ if(SE_STATIC AND NOT XPLUS)
     ${SE_VORBIS_DIR}/synthesis.c ${SE_VORBIS_DIR}/vorbisfile.c ${SE_VORBIS_DIR}/window.c
   )
   target_include_directories(se_vorbis${MP} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../ios/include
     ${CMAKE_CURRENT_SOURCE_DIR}/External/libogg/include
     ${CMAKE_CURRENT_SOURCE_DIR}/External/libvorbis/include
     ${SE_VORBIS_DIR})

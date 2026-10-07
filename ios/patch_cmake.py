@@ -18,6 +18,7 @@ option(SE_STATIC "Statically link all game modules into the executable" ${{SE_ST
 if(SE_STATIC)
   set(SE_LIBTYPE STATIC)
   add_definitions(-DSTATICALLY_LINKED=1)
+  include_directories(${{CMAKE_CURRENT_SOURCE_DIR}}/../../ios/include)  # bundled ogg config
 else()
   set(SE_LIBTYPE SHARED)
 endif()
@@ -44,6 +45,7 @@ if(SE_STATIC AND NOT XPLUS)
     ${{SE_VORBIS_DIR}}/synthesis.c ${{SE_VORBIS_DIR}}/vorbisfile.c ${{SE_VORBIS_DIR}}/window.c
   )
   target_include_directories(se_vorbis${{MP}} PRIVATE
+    ${{CMAKE_CURRENT_SOURCE_DIR}}/../../ios/include
     ${{CMAKE_CURRENT_SOURCE_DIR}}/External/libogg/include
     ${{CMAKE_CURRENT_SOURCE_DIR}}/External/libvorbis/include
     ${{SE_VORBIS_DIR}})
@@ -115,6 +117,8 @@ def patch(path: pathlib.Path):
     # 9. tools are optional
     s = re.sub(r'^ set_target_properties\(((?:DedicatedServer|MakeFONT|TEXConv)\$\{MP\})(\s+PROPERTIES OUTPUT_NAME [^\n]*\))$',
                r' if(TARGET \1)\n  set_target_properties(\1\2\n endif()', s, flags=re.M)
+    s = s.replace('    \t\tinclude_directories("/usr/local/include")\n\t\tinclude_directories("/usr/X11/include/")\n',
+                  '    \t\tif(NOT IOS)  # host headers must not leak into the iOS build\n    \t\t  include_directories("/usr/local/include")\n\t\t  include_directories("/usr/X11/include/")\n    \t\tendif()\n', 1)
     assert s.count(MARK) == 2
     path.write_text(s)
     print(f"{path}: patched")

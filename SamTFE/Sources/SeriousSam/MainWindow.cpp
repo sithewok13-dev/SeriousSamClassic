@@ -277,6 +277,9 @@ void OpenMainWindowNormal( PIX pixSizeI, PIX pixSizeJ)
   SDL_snprintf( achWindowTitle, sizeof (achWindowTitle), TRANSV("Serious Sam (Window %dx%d)"), pixSizeI, pixSizeJ);
   //CPrintF((const char*)"--- %s ---\n",achWindowTitle);
   unsigned int _uFlags = SDL_WINDOW_OPENGL;
+#ifdef PLATFORM_IOS
+  _uFlags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_BORDERLESS;  // whole screen, no status bar
+#endif
   if (sam_bBorderLessActive) _uFlags |= SDL_WINDOW_BORDERLESS; 
   _hwndMain = SDL_CreateWindow((const char*) strWindow1251ToUtf8(achWindowTitle), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, pixSizeI, pixSizeJ, _uFlags);
   if( _hwndMain==NULL) FatalError(TRANSV("Cannot open main window!"));

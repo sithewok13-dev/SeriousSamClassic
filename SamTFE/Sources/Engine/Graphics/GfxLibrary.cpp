@@ -1889,6 +1889,9 @@ void CGfxLibrary::SwapBuffers(CViewPort *pvp)
     CTempDC tdc(pvp->vp_hWnd);
     pwglSwapBuffers(tdc.hdc);
 #else
+#ifdef PLATFORM_IOS
+    pglFlush();
+#endif
     SDL_GL_SwapWindow((SDL_Window *) pvp->vp_hWnd);
 #endif
 

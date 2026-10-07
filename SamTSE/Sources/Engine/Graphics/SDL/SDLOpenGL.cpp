@@ -3,6 +3,29 @@
 #include <Engine/Engine.h>
 #include "SDL.h"
 
+#ifdef PLATFORM_IOS
+// iOS only has OpenGL ES; gl4es translates the engine's desktop GL calls.
+#include <gl4esinit.h>
+#include <dlfcn.h>
+// Resolve real GLES entry points from the system framework only. A plain
+// SDL_GL_GetProcAddress would find gl4es' own glXxx symbols in our binary.
+static void *IOS_GLESProcAddress(const char *name)
+{
+  static void *hGLES = NULL;
+  if (hGLES == NULL) {
+    hGLES = dlopen("/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY | RTLD_LOCAL);
+  }
+  return hGLES ? dlsym(hGLES, name) : NULL;
+}
+static void IOS_MainFBSize(int *w, int *h)
+{
+  SDL_GL_GetDrawableSize(SDL_GL_GetCurrentWindow(), w, h);
+}
+#define SE_GL_GETPROC(name) gl4es_GetProcAddress(name)
+#else
+#define SE_GL_GETPROC(name) SDL_GL_GetProcAddress(name)
+#endif
+
 static void FailFunction_t(const char *strName) {
   ThrowF_t(TRANS("Required function %s not found."), strName);
 }
@@ -22,7 +45,7 @@ static void OGL_SetFunctionPointers_t(HINSTANCE hiOGL)
 
   #define DLLFUNCTION(dll, output, name, inputs, params, required) \
     strName = #name;  \
-    p##name = (output (__stdcall*) inputs) SDL_GL_GetProcAddress(strName); \
+    p##name = (output (__stdcall*) inputs) SE_GL_GETPROC(strName); \
     if( required && p##name == NULL) FailFunction_t(strName);
   #include "Engine/Graphics/gl_functions.h"
   #undef DLLFUNCTION
@@ -75,6 +98,17 @@ BOOL CGfxLibrary::CreateContext_OGL(HDC hdc)
     gl_iCurrentDepth = 16;  // oh well.
   }
 
+#ifdef PLATFORM_IOS
+  {
+    static BOOL bGL4ESReady = FALSE;
+    if (!bGL4ESReady) {
+      set_getprocaddress(IOS_GLESProcAddress);
+      set_getmainfbsize(IOS_MainFBSize);
+      initialize_gl4es();
+      bGL4ESReady = TRUE;
+    }
+  }
+#endif
   // prepare functions
   OGL_SetFunctionPointers_t(gl_hiDriver);
 
@@ -83,7 +117,7 @@ BOOL CGfxLibrary::CreateContext_OGL(HDC hdc)
 
 void *CGfxLibrary::OGL_GetProcAddress(const char *procname)
 {
-    return(SDL_GL_GetProcAddress(procname));
+    return(SE_GL_GETPROC(procname));
 }
 
 // prepares pixel format for OpenGL context
@@ -107,6 +141,11 @@ BOOL CGfxLibrary::SetupPixelFormat_OGL( HDC hdc, BOOL bReport/*=FALSE*/)
   SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, (dd != DD_16BIT) ? 8 : 5);
   SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+#ifdef PLATFORM_IOS
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#endif
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, gap_iDepthBits);
   SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, gap_iStencilBits);
 

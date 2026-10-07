@@ -1,0 +1,140 @@
+name: iOS
+
+# Builds unsigned .ipa files for The First Encounter and The Second Encounter.
+# Sideload them (e.g. with Signulous); copy your own game data in through the Files app.
+
+on:
+  push:
+    branches: [ "ios" ]
+  workflow_dispatch:
+
+env:
+  IOS_MIN: "14.0"
+  SDL_TAG: release-2.30.8
+  GL4ES_SHA: ec16bedd8819c475326f4f1a3063772c6d986e06
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.game }}
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - game: SamTFE
+            internal: serioussam
+          - game: SamTSE
+            internal: serioussamse
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Host tools
+      run: |
+        brew install bison flex ninja
+        echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
+        echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
+
+    - name: Cache iOS dependencies
+      id: deps
+      uses: actions/cache@v4
+      with:
+        path: deps
+        key: ios-deps-${{ env.SDL_TAG }}-${{ env.GL4ES_SHA }}-${{ env.IOS_MIN }}-v1
+
+    - name: Build SDL2 and gl4es for iOS
+      if: steps.deps.outputs.cache-hit != 'true'
+      run: |
+        set -e
+        DEPS=$PWD/deps
+        IOSFLAGS="-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=$IOS_MIN -DCMAKE_BUILD_TYPE=Release -G Ninja"
+
+        git clone --depth 1 -b $SDL_TAG https://github.com/libsdl-org/SDL.git /tmp/SDL
+        cmake -S /tmp/SDL -B /tmp/SDL/build $IOSFLAGS \
+          -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF -DSDL_HIDAPI=OFF \
+          -DCMAKE_INSTALL_PREFIX=$DEPS
+        cmake --build /tmp/SDL/build
+        cmake --install /tmp/SDL/build
+
+        git clone https://github.com/ptitSeb/gl4es.git /tmp/gl4es
+        git -C /tmp/gl4es checkout $GL4ES_SHA
+        cmake -S /tmp/gl4es -B /tmp/gl4es/build $IOSFLAGS \
+          -DNOX11=ON -DNOEGL=ON -DSTATICLIB=ON -DNO_LOADER=ON -DNO_INIT_CONSTRUCTOR=ON -DDEFAULT_ES=2
+        cmake --build /tmp/gl4es/build
+        mkdir -p $DEPS/gl4es/lib
+        cp -R /tmp/gl4es/include $DEPS/gl4es/
+        find /tmp/gl4es -name "libGL.a" -exec cp {} $DEPS/gl4es/lib/ \;
+        ls -la $DEPS/lib $DEPS/gl4es/lib
+
+    - name: Build entity compiler (host)
+      run: |
+        set -e
+        cd ${{ matrix.game }}/Sources
+        bison -o Ecc/Parser.cpp Ecc/Parser.y -d
+        cp Ecc/Parser.hpp Ecc/Parser.h
+        flex -oEcc/Scanner.cpp Ecc/Scanner.l
+        clang++ -O2 -std=gnu++14 -I. -DPLATFORM_UNIX=1 -DPRAGMA_ONCE=1 -fms-extensions -w \
+          -o $RUNNER_TEMP/ecc Ecc/Main.cpp Ecc/Parser.cpp Ecc/Scanner.cpp
+
+    - name: Configure
+      run: |
+        DEPS=$PWD/deps
+        cmake -S ${{ matrix.game }}/Sources -B build -G Ninja \
+          -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+          -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=$IOS_MIN \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DECC=$RUNNER_TEMP/ecc \
+          -DUSE_ASM=OFF \
+          -DBUILD_DEDICATED_SERVER=OFF -DBUILD_MAKEFONT=OFF -DBUILD_TEXConv=OFF \
+          -DSDL2_DIR=$DEPS/lib/cmake/SDL2 \
+          -DSDL2_INCLUDE_DIR=$DEPS/include/SDL2 \
+          -DSDL2_LIBRARY=$DEPS/lib/libSDL2.a \
+          -DGL4ES_ROOT=$DEPS/gl4es \
+          -DGL4ES_LIBRARY=$DEPS/gl4es/lib/libGL.a \
+          -DSE_IOS_BUILD_NUMBER=${{ github.run_number }}
+
+    - name: Build
+      run: cmake --build build -- -k 0
+
+    - name: Package .ipa
+      run: |
+        set -e
+        APP=$(find build -maxdepth 2 -name "*.app" -type d | head -1)
+        echo "App bundle: $APP"
+        ls -la "$APP"
+        plutil -lint "$APP/Info.plist"
+        codesign --force --sign - --timestamp=none "$APP"
+        mkdir -p ipa/Payload
+        cp -R "$APP" ipa/Payload/
+        (cd ipa && zip -qry "../${{ matrix.internal }}-ios.ipa" Payload)
+        ls -la *.ipa
+
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.internal }}-ios
+        path: ${{ matrix.internal }}-ios.ipa
+
+  release:
+    name: Publish to "iOS latest" release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        path: out
+        merge-multiple: true
+    - uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ios-latest
+        name: iOS latest build
+        prerelease: true
+        make_latest: false
+        body: |
+          Unsigned iOS builds from the `ios` branch (run ${{ github.run_number }}, commit ${{ github.sha }}).
+          serioussam-ios.ipa = The First Encounter, serioussamse-ios.ipa = The Second Encounter.
+          Sideload with Signulous, then copy your own game data into Files > On My iPhone > Sam FE / Sam SE.
+        files: out/*.ipa

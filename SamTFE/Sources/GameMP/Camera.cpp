@@ -27,7 +27,7 @@ public:
 
 BOOL _bCameraOn=FALSE;
 CTFileStream _strScript;
-BOOL _bInitialized;
+static BOOL _bInitialized;
 FLOAT _fStartTime;
 CCameraPos _cp0;
 CCameraPos _cp1;

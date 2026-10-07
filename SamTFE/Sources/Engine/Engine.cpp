@@ -44,6 +44,10 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <Engine/Templates/StaticArray.cpp>
 #include <Engine/Base/IFeel.h>
 #include <Engine/Base/FileSystem.h>
+#ifdef PLATFORM_IOS
+extern "C" const char *IOS_DocumentsDir(void);
+extern "C" void IOS_InstallBundledFile(const char *strName);
+#endif
 
 #if PLATFORM_UNIX
 #include "SDL.h"
@@ -680,6 +684,16 @@ ENGINE_API void SE_InitEngine(CTString strGameID)
   char buf[MAX_PATH];
   _pFileSystem->GetUserDirectory(buf, sizeof (buf));
   _fnmUserDir = CTString(buf);
+#ifdef PLATFORM_IOS
+  // iOS: game data and settings live in the app's Documents folder,
+  // which the Files app shows as "On My iPhone > <app name>".
+  {
+    _fnmApplicationPath = CTString(IOS_DocumentsDir());
+    _fnmUserDir = _fnmApplicationPath;
+    IOS_InstallBundledFile("SE1_10b.gro");
+    IOS_InstallBundledFile("ModEXT.txt");
+  }
+#endif
 #endif
   try {
     _fnmApplicationExe.RemoveApplicationPath_t();
@@ -879,6 +893,17 @@ ENGINE_API void SE_InitEngine(CTString strGameID)
     }
   }
 
+#ifdef PLATFORM_IOS
+  {
+    CTString strTest = (strGameID == "serioussamse") ? "SE1_00_Levels.gro" : "1_00_music.gro";
+    if (!_pFileSystem->Exists((const char *)(_fnmApplicationPath + strTest))) {
+      FatalError(TRANSV("Game data not found.\n\n"
+        "Copy the files from your own copy of the game (all .gro files, plus the Help and Levels folders) "
+        "into Files > On My iPhone > this app, then start it again.\n\nMissing: %s"),
+        (const char *) strTest);
+    }
+  }
+#endif
   // print info on the started application
   CPrintF(TRANSV("Executable: %s\n"), (const char *) strExePath);
   CPrintF(TRANSV("Assumed engine data directory: %s\n"), (const char *) _fnmApplicationPath);

@@ -30,6 +30,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #endif
 
 #include <fcntl.h>
+#ifdef PLATFORM_IOS
+#include <SDL_main.h>
+#endif
 #include <sys/stat.h>
 #include <Engine/CurrentVersion.h>
 #include <GameMP/Game.h>
@@ -62,7 +65,7 @@ extern FLOAT _fGlobalOptionsAdjuster;
 extern FLOAT _fGlobalModAdjuster;
 extern FLOAT _fGlobalButtonAdjuster;
 extern FLOAT _fGlobalProfileFOVAdjuster;
-#ifdef PLATFORM_UNIX
+#if defined(PLATFORM_UNIX) && !defined(STATICALLY_LINKED)
 ENGINE_API FLOAT _fWeaponFOVAdjuster;
 ENGINE_API FLOAT _fPlayerFOVAdjuster;
 ENGINE_API FLOAT _fArmorHeightAdjuster;
