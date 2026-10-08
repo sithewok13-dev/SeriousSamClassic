@@ -1331,6 +1331,13 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
       }
 #endif
 
+#ifdef PLATFORM_IOS
+      if (msg.message==WM_LBUTTONDOWN &&
+        (_gmRunningGameMode==GM_DEMO || _gmRunningGameMode==GM_INTRO)) {
+        msg.message = WM_KEYDOWN;
+        msg.wParam = VK_ESCAPE;
+      }
+#endif
       if (msg.message==WM_KEYDOWN && msg.wParam==VK_ESCAPE && 
         (_gmRunningGameMode==GM_DEMO || _gmRunningGameMode==GM_INTRO)) {
         _pGame->StopGame();

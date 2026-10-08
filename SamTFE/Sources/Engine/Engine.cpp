@@ -47,6 +47,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #ifdef PLATFORM_IOS
 extern "C" const char *IOS_DocumentsDir(void);
 extern "C" void IOS_InstallBundledFile(const char *strName);
+extern "C" void IOS_StartOutputLog(void);
 #endif
 
 #if PLATFORM_UNIX
@@ -692,6 +693,7 @@ ENGINE_API void SE_InitEngine(CTString strGameID)
     _fnmUserDir = _fnmApplicationPath;
     IOS_InstallBundledFile("SE1_10b.gro");
     IOS_InstallBundledFile("ModEXT.txt");
+    IOS_StartOutputLog();
   }
 #endif
 #endif

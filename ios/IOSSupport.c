@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "SDL.h"
 
 /* The app's Documents folder, with a trailing slash. The Files app shows it
@@ -17,6 +18,20 @@ const char *IOS_DocumentsDir(void)
     mkdir(strDir, 0755);
   }
   return strDir;
+}
+
+/* stdout and stderr go to Output.log in the same folder, next to
+   SeriousSam.log: gl4es reports there what the GPU supports and any shaders
+   it fails to build, and the engine logs what it draws (see GfxLibrary.cpp). */
+void IOS_StartOutputLog(void)
+{
+  char strPath[1100];
+  snprintf(strPath, sizeof(strPath), "%sOutput.log", IOS_DocumentsDir());
+  if (freopen(strPath, "w", stdout) != NULL) {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    dup2(fileno(stdout), fileno(stderr));
+  }
+  setenv("LIBGL_LOGSHADERERROR", "1", 1);
 }
 
 static long FileSize(const char *strPath)

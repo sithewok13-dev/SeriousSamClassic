@@ -109,6 +109,25 @@ BOOL CGfxLibrary::CreateContext_OGL(HDC hdc)
     }
   }
 #endif
+#ifdef PLATFORM_IOS
+  {
+    typedef const char *(*GetStringFn)(unsigned int);
+    typedef void (*GetIntegervFn)(unsigned int, int *);
+    GetStringFn pGetString = (GetStringFn) IOS_GLESProcAddress("glGetString");
+    GetIntegervFn pGetIntegerv = (GetIntegervFn) IOS_GLESProcAddress("glGetIntegerv");
+    if (pGetString != NULL && pGetIntegerv != NULL) {
+      int iDepth = -1, iStencil = -1, iFBO = -1, iW = 0, iH = 0;
+      pGetIntegerv(0x0D56, &iDepth);    // GL_DEPTH_BITS
+      pGetIntegerv(0x0D57, &iStencil);  // GL_STENCIL_BITS
+      pGetIntegerv(0x8CA6, &iFBO);      // GL_FRAMEBUFFER_BINDING
+      IOS_MainFBSize(&iW, &iH);
+      printf("GLES: %s, %s\n", pGetString(0x1F01), pGetString(0x1F02));  // GL_RENDERER, GL_VERSION
+      printf("GLES: depth %d bits, stencil %d bits, framebuffer %d, drawable %dx%d\n",
+             iDepth, iStencil, iFBO, iW, iH);
+      printf("GLES extensions: %s\n", pGetString(0x1F03));  // GL_EXTENSIONS
+    }
+  }
+#endif
   // prepare functions
   OGL_SetFunctionPointers_t(gl_hiDriver);
 

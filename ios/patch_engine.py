@@ -216,4 +216,114 @@ extern "C" void IOS_WaitForForeground(void);
 #endif
 """, "IOS_WaitForForeground();\n    }")
 
+    # ------------------------------------------------- show every frame
+    # UIKit only puts a new frame on screen when its run loop turns. The main
+    # loop gets there when it reads input; loading screens never did, so they
+    # stayed black.
+    p = src / "Engine/Graphics/GfxLibrary.cpp"
+    sub(p, "    SDL_GL_SwapWindow((SDL_Window *) pvp->vp_hWnd);\n",
+"""    SDL_GL_SwapWindow((SDL_Window *) pvp->vp_hWnd);
+#ifdef PLATFORM_IOS
+    IOS_LogFrameStats(gl_ctWorldTriangles, gl_ctModelTriangles, gl_ctTotalTriangles);
+    SDL_PumpEvents();  // let UIKit show the frame
+#endif
+""", "SDL_PumpEvents();  // let UIKit show the frame")
+
+    # ----------------------------------------- tap leaves the intro / demos
+    # A tap arrives as a left click, which only skips to the next demo; on
+    # iOS it is the only input there is, so make it Escape: to the menu.
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, "      if (msg.message==WM_KEYDOWN && msg.wParam==VK_ESCAPE && \n"
+           "        (_gmRunningGameMode==GM_DEMO || _gmRunningGameMode==GM_INTRO)) {\n",
+"""#ifdef PLATFORM_IOS
+      if (msg.message==WM_LBUTTONDOWN &&
+        (_gmRunningGameMode==GM_DEMO || _gmRunningGameMode==GM_INTRO)) {
+        msg.message = WM_KEYDOWN;
+        msg.wParam = VK_ESCAPE;
+      }
+#endif
+      if (msg.message==WM_KEYDOWN && msg.wParam==VK_ESCAPE && \n        (_gmRunningGameMode==GM_DEMO || _gmRunningGameMode==GM_INTRO)) {
+""", "msg.message = WM_KEYDOWN;\n        msg.wParam = VK_ESCAPE;")
+
+    # ---------------------------------------------------- diagnostics log
+    # stdout/stderr go to Output.log in Documents (gl4es reports there), plus
+    # what the real OpenGL ES under gl4es provides and, once a second, how
+    # much got drawn and any GLES errors -- to find why the 3D view is black.
+    p = src / "Engine/Engine.cpp"
+    sub(p, 'extern "C" void IOS_InstallBundledFile(const char *strName);\n',
+           'extern "C" void IOS_InstallBundledFile(const char *strName);\n'
+           'extern "C" void IOS_StartOutputLog(void);\n', "IOS_StartOutputLog(void);")
+    sub(p, '    IOS_InstallBundledFile("ModEXT.txt");\n  }\n',
+           '    IOS_InstallBundledFile("ModEXT.txt");\n    IOS_StartOutputLog();\n  }\n', "    IOS_StartOutputLog();\n")
+
+    p = src / "Engine/Graphics/SDL/SDLOpenGL.cpp"
+    sub(p, "  // prepare functions\n  OGL_SetFunctionPointers_t(gl_hiDriver);\n",
+"""#ifdef PLATFORM_IOS
+  {
+    typedef const char *(*GetStringFn)(unsigned int);
+    typedef void (*GetIntegervFn)(unsigned int, int *);
+    GetStringFn pGetString = (GetStringFn) IOS_GLESProcAddress("glGetString");
+    GetIntegervFn pGetIntegerv = (GetIntegervFn) IOS_GLESProcAddress("glGetIntegerv");
+    if (pGetString != NULL && pGetIntegerv != NULL) {
+      int iDepth = -1, iStencil = -1, iFBO = -1, iW = 0, iH = 0;
+      pGetIntegerv(0x0D56, &iDepth);    // GL_DEPTH_BITS
+      pGetIntegerv(0x0D57, &iStencil);  // GL_STENCIL_BITS
+      pGetIntegerv(0x8CA6, &iFBO);      // GL_FRAMEBUFFER_BINDING
+      IOS_MainFBSize(&iW, &iH);
+      printf("GLES: %s, %s\\n", pGetString(0x1F01), pGetString(0x1F02));  // GL_RENDERER, GL_VERSION
+      printf("GLES: depth %d bits, stencil %d bits, framebuffer %d, drawable %dx%d\\n",
+             iDepth, iStencil, iFBO, iW, iH);
+      printf("GLES extensions: %s\\n", pGetString(0x1F03));  // GL_EXTENSIONS
+    }
+  }
+#endif
+  // prepare functions
+  OGL_SetFunctionPointers_t(gl_hiDriver);
+""", 'printf("GLES: depth %d bits')
+
+    p = src / "Engine/Graphics/GfxLibrary.cpp"
+    sub(p, "#ifdef PLATFORM_UNIX\n#include <SDL.h>\n#endif\n",
+"""#ifdef PLATFORM_UNIX
+#include <SDL.h>
+#endif
+
+#ifdef PLATFORM_IOS
+#include <dlfcn.h>
+// Once a second, into Output.log: frames drawn, triangles drawn, the
+// framebuffer bound and any errors from the real OpenGL ES under gl4es.
+static void IOS_LogFrameStats(INDEX ctWorld, INDEX ctModel, INDEX ctTotal)
+{
+  static Uint32 tmLast = 0;
+  static INDEX ctFrames = 0;
+  static unsigned int (*pGetError)(void) = NULL;
+  static void (*pGetIntegerv)(unsigned int, int *) = NULL;
+  static BOOL bLooked = FALSE;
+  ctFrames++;
+  const Uint32 tmNow = SDL_GetTicks();
+  if (tmNow - tmLast < 1000) return;
+  if (!bLooked) {
+    void *hGLES = dlopen("/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY | RTLD_LOCAL);
+    if (hGLES != NULL) {
+      pGetError = (unsigned int (*)(void)) dlsym(hGLES, "glGetError");
+      pGetIntegerv = (void (*)(unsigned int, int *)) dlsym(hGLES, "glGetIntegerv");
+    }
+    bLooked = TRUE;
+  }
+  int iFBO = -1;
+  if (pGetIntegerv != NULL) pGetIntegerv(0x8CA6, &iFBO);  // GL_FRAMEBUFFER_BINDING
+  printf("[%u ms] %d frames, triangles: world %d, models %d, total %d, framebuffer %d, GLES errors:",
+         (unsigned) tmNow, (int) ctFrames, (int) ctWorld, (int) ctModel, (int) ctTotal, iFBO);
+  INDEX ctErrors = 0;
+  for (; pGetError != NULL && ctErrors < 8; ctErrors++) {
+    const unsigned int iError = pGetError();
+    if (iError == 0) break;
+    printf(" 0x%04X", iError);
+  }
+  printf(ctErrors == 0 ? " none\\n" : "\\n");
+  ctFrames = 0;
+  tmLast = tmNow;
+}
+#endif
+""", "IOS_LogFrameStats(INDEX ctWorld")
+
     print(game, "patched")
