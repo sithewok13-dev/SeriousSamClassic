@@ -30,6 +30,10 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <Engine/Base/Shell.h>
 #include <Engine/Base/ErrorReporting.h>
 
+#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+#endif
+
 extern INDEX inp_iKeyboardReadingMethod;
 extern FLOAT inp_fMouseSensitivity;
 extern INDEX inp_bAllowMouseAcceleration;
@@ -780,6 +784,15 @@ void CInput::GetInput(BOOL bPreScan)
   {
     FLOAT fDX = FLOAT( mouse_relative_x );
     FLOAT fDY = FLOAT( mouse_relative_y );
+#ifdef PLATFORM_IOS
+    // the touch controls' drag-to-look, as more mouse movement
+    {
+      float fTouchDX = 0.0f, fTouchDY = 0.0f;
+      IOSTouch_TakeLook(&fTouchDX, &fTouchDY);
+      fDX += fTouchDX;
+      fDY += fTouchDY;
+    }
+#endif
 
     mouse_relative_x = mouse_relative_y = 0;
 

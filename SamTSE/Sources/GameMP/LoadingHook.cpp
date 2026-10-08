@@ -17,6 +17,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "StdAfx.h"
 #include "LCDDrawing.h"
 #include <locale.h>
+#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+#endif
 
 #define USECUSTOMTEXT 0
 
@@ -54,6 +57,9 @@ void RemapLevelNames(INDEX &iLevel)
 
 static void LoadingHook_t(CProgressHookInfo *pphi)
 {
+#ifdef PLATFORM_IOS
+  IOSTouch_Hide();
+#endif
   // if user presses escape
   ULONG ulCheckFlags = 0x8000;
   if (pphi->phi_fCompleted>0) {

@@ -410,4 +410,363 @@ static inline INDEX GridCoord(double d)
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1)
 """, "SDL_HINT_ACCELEROMETER_AS_JOYSTICK")
 
+    # ------------------------------------------------- touch controls
+    # The overlay is ios/IOSTouch.m; these feed what it reads into the game.
+    # Buttons and the move stick go straight into the player's action for the
+    # tick, so they work whatever keys are bound (Controls/System/Common.ctl
+    # with the quick save/load keys isn't part of the game data on the phone).
+    p = src / "GameMP/Game.cpp"
+    sub(p, "void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction, BOOL bPreScan)\n",
+"""#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+// The player's button bits, as in Player.es (PLACT_*; they are not in a
+// header). The First Encounter has no sniper rifle or serious bomb, and uses
+// bits 9-13 to select weapons.
+#define IOS_PLACT_FIRE        (1L<<0)
+#define IOS_PLACT_WEAPON_NEXT (1L<<2)
+#define IOS_PLACT_WEAPON_PREV (1L<<3)
+#define IOS_PLACT_USE         (1L<<5)
+#define IOS_PLACT_COMPUTER    (1L<<6)
+#ifdef FIRST_ENCOUNTER
+#define IOS_PLACT_USE_HELD    0
+#define IOS_PLACT_SNIPER_USE  0
+#define IOS_PLACT_FIREBOMB    0
+#else
+#define IOS_PLACT_USE_HELD    (1L<<9)
+#define IOS_PLACT_SNIPER_USE  (1L<<12)
+#define IOS_PLACT_FIREBOMB    (1L<<13)
+#endif
+
+// The touch controls' buttons as the player's button bits for this tick.
+// USE works like the default Use key (ctl_bUseOrComputer): use, and tapped
+// again within half a second NETRICSA. ZOOM is plain use (with the sniper
+// rifle: scope on/off, held: zoom in).
+static ULONG IOS_TouchButtonActions(ULONG ulTouch)
+{
+  static ULONG ulTouchLast = 0;
+  static TIME tmLastUse = -100.0;
+  ULONG ulActions = 0;
+  if (ulTouch&IOSTOUCH_FIRE)       ulActions |= IOS_PLACT_FIRE;
+  if (ulTouch&IOSTOUCH_NEXTWEAPON) ulActions |= IOS_PLACT_WEAPON_NEXT;
+  if (ulTouch&IOSTOUCH_PREVWEAPON) ulActions |= IOS_PLACT_WEAPON_PREV;
+  if (ulTouch&IOSTOUCH_BOMB)       ulActions |= IOS_PLACT_FIREBOMB;
+  if (ulTouch&IOSTOUCH_ZOOM)       ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
+  if (ulTouch&IOSTOUCH_USE) {
+    ulActions |= IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
+    // just pressed
+    if (!(ulTouchLast&IOSTOUCH_USE)) {
+      const TIME tmNow = _pTimer->GetRealTimeTick();
+      ulActions |= (tmNow<=tmLastUse+0.5) ? IOS_PLACT_COMPUTER : IOS_PLACT_USE;
+      tmLastUse = tmNow;
+    }
+  }
+  ulTouchLast = ulTouch;
+  return ulActions;
+}
+#endif
+
+void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction, BOOL bPreScan)
+""", "IOS_TouchButtonActions(ULONG ulTouch)")
+    sub(p, """  // execute all button-action shell commands
+  if (!bPreScan) {
+    DoButtonActions();
+  }
+  //CPrintF("creating: prescan %d, x:%g\\n", bPreScan, paAction.pa_aRotation(1));
+
+  // make the player class create the action packet
+  ctl_ComposeActionPacket(pc, paAction, bPreScan);
+}
+""", """#ifdef PLATFORM_IOS
+  // touch controls (first local player): the move stick as movement axes,
+  // JUMP and CROUCH as up and down -- before the player's speeds apply
+  IOSTouchInput tiTouch;
+  memset(&tiTouch, 0, sizeof(tiTouch));
+  if (!bPreScan && ctl_iCurrentPlayerLocal==0) {
+    IOSTouch_ReadInput(&tiTouch);
+    paAction.pa_vTranslation(1) += tiTouch.fMoveX;
+    paAction.pa_vTranslation(3) -= tiTouch.fMoveY;
+    if (tiTouch.ulButtons&IOSTOUCH_JUMP)   paAction.pa_vTranslation(2) += 1.0f;
+    if (tiTouch.ulButtons&IOSTOUCH_CROUCH) paAction.pa_vTranslation(2) -= 1.0f;
+  }
+#endif
+
+  // execute all button-action shell commands
+  if (!bPreScan) {
+    DoButtonActions();
+  }
+  //CPrintF("creating: prescan %d, x:%g\\n", bPreScan, paAction.pa_aRotation(1));
+
+  // make the player class create the action packet
+  ctl_ComposeActionPacket(pc, paAction, bPreScan);
+#ifdef PLATFORM_IOS
+  // and its buttons, whatever keys are bound
+  if (!bPreScan && ctl_iCurrentPlayerLocal==0) {
+    paAction.pa_ulButtons |= IOS_TouchButtonActions(tiTouch.ulButtons);
+  }
+#endif
+}
+""", "IOSTouch_ReadInput(&tiTouch);")
+
+    # drag-to-look: more mouse movement, before the mouse settings apply
+    p = src / "Engine/Base/SDL/SDLInput.cpp"
+    sub(p, "#include <Engine/Base/ErrorReporting.h>\n",
+"""#include <Engine/Base/ErrorReporting.h>
+
+#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+#endif
+""", '#include "IOSTouch.h"')
+    sub(p, "    FLOAT fDY = FLOAT( mouse_relative_y );\n",
+"""    FLOAT fDY = FLOAT( mouse_relative_y );
+#ifdef PLATFORM_IOS
+    // the touch controls' drag-to-look, as more mouse movement
+    {
+      float fTouchDX = 0.0f, fTouchDY = 0.0f;
+      IOSTouch_TakeLook(&fTouchDX, &fTouchDY);
+      fDX += fTouchDX;
+      fDY += fTouchDY;
+    }
+#endif
+""", "IOSTouch_TakeLook(&fTouchDX, &fTouchDY);")
+
+    # the iOS keyboard types a word picked from its suggestions as one text
+    # event; hand out all of its characters, not just the first
+    p = src / "Engine/Base/SDL/SDLEvents.cpp"
+    sub(p, "    SDL_Event sdlevent;\n    while (SE_SDL_InputEventPoll(&sdlevent))\n",
+"""#ifdef PLATFORM_IOS
+    // the rest of a text event that brought several characters at once
+    static char strTextLeft[SDL_TEXTINPUTEVENT_TEXT_SIZE] = "";
+    static int iTextLeft = 0;
+    if (strTextLeft[iTextLeft] != 0) {
+        SDL_zerop(msg);
+        msg->message = SDL_TEXTINPUT;
+        msg->wParam = strTextLeft[iTextLeft++];
+        return TRUE;
+    }
+#endif
+    SDL_Event sdlevent;
+    while (SE_SDL_InputEventPoll(&sdlevent))
+""", "static char strTextLeft[SDL_TEXTINPUTEVENT_TEXT_SIZE]")
+    sub(p, "                msg->wParam = sdlevent.text.text[0];  // !!! FIXME: dropping characters!\n",
+"""                msg->wParam = sdlevent.text.text[0];  // !!! FIXME: dropping characters!
+#ifdef PLATFORM_IOS
+                if (sdlevent.text.text[0] != 0) {
+                    SDL_strlcpy(strTextLeft, sdlevent.text.text + 1, sizeof(strTextLeft));
+                    iTextLeft = 0;
+                }
+#endif
+""", "SDL_strlcpy(strTextLeft, sdlevent.text.text + 1")
+
+    # the main loop tells the overlay what the game is doing, once a frame,
+    # and carries out what the player asked for on it
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, 'extern "C" void IOS_WaitForForeground(void);\n#endif\n',
+           'extern "C" void IOS_WaitForForeground(void);\n#include "IOSTouch.h"\n#endif\n', '#include "IOSTouch.h"')
+    sub(p, "// automaticaly manage pause toggling\nstatic void UpdatePauseState(void)\n",
+"""#ifdef PLATFORM_IOS
+// A key press for the message loop, as if typed
+static void IOS_PushKey(SDL_Keycode iKey)
+{
+  SDL_Event ev;
+  SDL_zero(ev);
+  ev.type = SDL_KEYDOWN;
+  ev.key.windowID = SDL_GetWindowID((SDL_Window *) _hwndMain);
+  ev.key.state = SDL_PRESSED;
+  ev.key.keysym.sym = iKey;
+  ev.key.keysym.scancode = SDL_GetScancodeFromKey(iKey);
+  SDL_PushEvent(&ev);
+  ev.type = SDL_KEYUP;
+  ev.key.state = SDL_RELEASED;
+  SDL_PushEvent(&ev);
+}
+
+// Once a frame: tells the touch controls what the game is doing, and carries
+// out what the player asked for on them
+static void IOS_UpdateTouchControls(void)
+{
+  // gameplay controls only while a single-player game is being played; in
+  // menus, NETRICSA, demos and the intro touches are mouse clicks
+  const BOOL bComputer = !(_pGame->gm_csComputerState==CS_OFF || _pGame->gm_csComputerState==CS_ONINBACKGROUND);
+  int iMode = IOSTOUCH_HIDDEN;
+  if (_gmRunningGameMode==GM_SINGLE_PLAYER && _pGame->gm_bGameOn && !bMenuActive && !bMenuRendering && !bComputer) {
+    if (_pGame->gm_csConsoleState==CS_ON || _pGame->gm_csConsoleState==CS_TURNINGON) {
+      iMode = IOSTOUCH_CONSOLE;
+    } else if (_pGame->gm_csConsoleState==CS_OFF && _pInput->IsInputEnabled()) {
+      // paused (after the app was in the background): only Pause resumes
+      iMode = _pNetwork->IsPaused() ? IOSTOUCH_PAUSED : IOSTOUCH_GAMEPLAY;
+    }
+  }
+  IOSTouchHud hud;
+  IOS_GetHudState(&hud);
+  const int iRequests = IOSTouch_Update(_hwndMain, iMode, &hud);
+
+  // only what the buttons showing now can ask for
+  if ((iRequests&IOSTOUCH_REQ_MENU) && (iMode==IOSTOUCH_GAMEPLAY || iMode==IOSTOUCH_PAUSED)) {
+    IOS_PushKey(SDLK_ESCAPE);
+  }
+  if ((iRequests&IOSTOUCH_REQ_CONSOLE) && (iMode==IOSTOUCH_GAMEPLAY || iMode==IOSTOUCH_CONSOLE)) {
+    IOS_PushKey(SDLK_F1);
+  }
+  if ((iRequests&IOSTOUCH_REQ_RESUME) && iMode==IOSTOUCH_PAUSED) {
+    // the pause only goes off on the next game tick: don't put it back meanwhile
+    static DOUBLE tmResumed = -100.0;
+    const DOUBLE tmNow = _pTimer->GetHighPrecisionTimer().GetSeconds();
+    if (tmNow>tmResumed+0.5) {
+      _pNetwork->TogglePause();
+      tmResumed = tmNow;
+    }
+  }
+  if ((iRequests&IOSTOUCH_REQ_QUICKSAVE) && iMode==IOSTOUCH_GAMEPLAY) {
+    _pShell->SetINDEX("gam_bQuickSave", 1);  // the game saves it this frame
+  }
+  if ((iRequests&IOSTOUCH_REQ_QUICKLOAD) && iMode==IOSTOUCH_GAMEPLAY) {
+    // loading stops the game first, so a missing quicksave would end it
+    if (FileExists(_pGame->GetQuickSaveName(FALSE))) {
+      _pShell->SetINDEX("gam_bQuickLoad", 1);
+    } else {
+      CPrintF(TRANS("No quicksave yet\\n"));
+    }
+  }
+}
+#endif
+
+// automaticaly manage pause toggling
+static void UpdatePauseState(void)
+""", "static void IOS_UpdateTouchControls(void)")
+    sub(p, "      IOS_WaitForForeground();\n    }\n#endif\n",
+           "      IOS_WaitForForeground();\n    }\n    IOS_UpdateTouchControls();\n#endif\n",
+        "    IOS_UpdateTouchControls();\n")
+
+    # no touch controls over the loading screen
+    p = src / "GameMP/LoadingHook.cpp"
+    sub(p, "#include <locale.h>\n",
+           '#include <locale.h>\n#ifdef PLATFORM_IOS\n#include "IOSTouch.h"\n#endif\n', '#include "IOSTouch.h"')
+    sub(p, "static void LoadingHook_t(CProgressHookInfo *pphi)\n{\n",
+"""static void LoadingHook_t(CProgressHookInfo *pphi)
+{
+#ifdef PLATFORM_IOS
+  IOSTouch_Hide();
+#endif
+""", "  IOSTouch_Hide();\n")
+
+    # the HUD tells the overlay where its score box and ammo row are, and
+    # what the player holds (sniper rifle, serious bombs)
+    p = src / ("EntitiesMP/Common/HUD.cpp" if game == "SamTSE" else "Entities/Common/HUD.cpp")
+    sub(p, "// draw border with filter\nstatic void HUD_DrawBorder(",
+"""#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+// What the touch controls need to know (IOS_GetHudState): where the score
+// box, the ammo row and the unread messages box are, so they keep their
+// buttons clear of them, and what the player holds. Boxes are gathered as
+// HUD_DrawBorder draws them, in fractions of the screen.
+enum { IOS_HUD_NONE = 0, IOS_HUD_SCORE, IOS_HUD_AMMO, IOS_HUD_MESSAGES };
+static INDEX _iIOSHudPart = IOS_HUD_NONE; // what the borders drawn now belong to
+static BOOL _bIOSHudMeasureOnly = FALSE;  // only measure the border, don't draw it
+static IOSTouchHud _hudIOS;               // being gathered
+static IOSTouchHud _hudIOSDone;           // the last complete one...
+static DOUBLE _tmIOSHudDone = -100.0;     // ...and when it was drawn
+
+static void IOS_HudAddBorder(FLOAT fLeft, FLOAT fUp, FLOAT fRight, FLOAT fDown)
+{
+  if (_iIOSHudPart==IOS_HUD_NONE) return;
+  float *af = (_iIOSHudPart==IOS_HUD_SCORE) ? _hudIOS.afScore
+            : (_iIOSHudPart==IOS_HUD_AMMO) ? _hudIOS.afAmmo : _hudIOS.afMessages;
+  const FLOAT fW = _pDP->dp_Raster->ra_Width;
+  const FLOAT fH = _pDP->dp_Raster->ra_Height;
+  const float afBox[4] = { (_pDP->dp_MinI+fLeft)/fW,  (_pDP->dp_MinJ+fUp)/fH,
+                           (_pDP->dp_MinI+fRight)/fW, (_pDP->dp_MinJ+fDown)/fH };
+  if (af[2]<=af[0]) {
+    memcpy(af, afBox, sizeof(afBox));
+  } else {
+    af[0] = Min(af[0], afBox[0]);
+    af[1] = Min(af[1], afBox[1]);
+    af[2] = Max(af[2], afBox[2]);
+    af[3] = Max(af[3], afBox[3]);
+  }
+}
+
+extern "C" void IOS_GetHudState(IOSTouchHud *pHud)
+{
+  *pHud = _hudIOSDone;
+  pHud->bValid = (_pTimer->GetHighPrecisionTimer().GetSeconds()-_tmIOSHudDone < 0.5);
+}
+#endif
+
+// draw border with filter
+static void HUD_DrawBorder(""", "static void IOS_HudAddBorder(")
+    sub(p, "  const FLOAT fDown  = fCenterJ  + fSizeJ/2 +1;\n",
+"""  const FLOAT fDown  = fCenterJ  + fSizeJ/2 +1;
+#ifdef PLATFORM_IOS
+  IOS_HudAddBorder(fLeft, fUp, fRight, fDown);
+  if (_bIOSHudMeasureOnly) return;
+#endif
+""", "  IOS_HudAddBorder(fLeft, fUp, fRight, fDown);\n")
+    sub(p, "  _penWeapons = (CPlayerWeapons*)&*_penPlayer->m_penWeapons;\n",
+"""  _penWeapons = (CPlayerWeapons*)&*_penPlayer->m_penWeapons;
+#ifdef PLATFORM_IOS
+  memset(&_hudIOS, 0, sizeof(_hudIOS));
+#endif
+""", "  memset(&_hudIOS, 0, sizeof(_hudIOS));\n")
+    sub(p, "    // prepare and draw score or frags info \n",
+           "#ifdef PLATFORM_IOS\n    _iIOSHudPart = IOS_HUD_SCORE;\n#endif\n    // prepare and draw score or frags info \n",
+        "    _iIOSHudPart = IOS_HUD_SCORE;\n")
+    sub(p, "  // eventually draw mana info \n",
+           "#ifdef PLATFORM_IOS\n  _iIOSHudPart = IOS_HUD_NONE;\n#endif\n  // eventually draw mana info \n",
+        "  _iIOSHudPart = IOS_HUD_NONE;\n#endif\n  // eventually draw mana info")
+    # the unread messages box, measured where it sits when it shows (it
+    # slides in and out, and only shows while there are unread messages)
+    sub(p, "    // prepare and draw unread messages\n",
+"""#ifdef PLATFORM_IOS
+    {
+      const FLOAT fRowM = hud_bLegacyHUD ? pixTopBound+fHalfUnit
+                        : pixBottomBound-(fNextUnit+fHalfUnit)*_fArmorHeightAdjuster-21.0f;
+      const FLOAT fColM = pixRightBound-fHalfUnit-fAdvUnit-fChrUnit*4;
+      const FLOAT fAdvM = fAdvUnit+fChrUnit*4/2-fHalfUnit;
+      _iIOSHudPart = IOS_HUD_MESSAGES;
+      _bIOSHudMeasureOnly = TRUE;
+      HUD_DrawBorder( fColM,       fRowM, fOneUnit,   fOneUnit, colBorder);
+      HUD_DrawBorder( fColM+fAdvM, fRowM, fChrUnit*4, fOneUnit, colBorder);
+      _bIOSHudMeasureOnly = FALSE;
+      _iIOSHudPart = IOS_HUD_NONE;
+    }
+#endif
+    // prepare and draw unread messages
+""", "_iIOSHudPart = IOS_HUD_MESSAGES;")
+    # the leftmost ammo box is this many boxes left of the rightmost one: all
+    # 8 ammo types, plus the serious bomb in the Second Encounter
+    ctAmmoAdv = 8 if game == "SamTSE" else 7
+    sub(p, "  FillWeaponAmmoTables();\n",
+"""  FillWeaponAmmoTables();
+#ifdef PLATFORM_IOS
+  // the ammo row at its widest, whatever the player has now, so the touch
+  // controls don't move about as ammo is picked up
+  {
+    const FLOAT fScalingAdjustment = _fCustomScalingAdjustment;
+    if (!hud_bLegacyHUD) {_fCustomScalingAdjustment = 0.7f;}
+    _iIOSHudPart = IOS_HUD_AMMO;
+    _bIOSHudMeasureOnly = TRUE;
+    HUD_DrawBorder( fCol,             fRow, fOneUnitS, fOneUnitS, colBorder);
+    HUD_DrawBorder( fCol-%d*fAdvUnitS, fRow, fOneUnitS, fOneUnitS, colBorder);
+    _bIOSHudMeasureOnly = FALSE;
+    _iIOSHudPart = IOS_HUD_NONE;
+    _fCustomScalingAdjustment = fScalingAdjustment;
+  }
+#endif
+""" % ctAmmoAdv, "_iIOSHudPart = IOS_HUD_AMMO;")
+    if game == "SamTSE":
+        strHolds = """  _hudIOS.bSniper = (_penWeapons->m_iCurrentWeapon==WEAPON_SNIPER);
+  _hudIOS.ctBombs = _penPlayer->m_iSeriousBombCount;
+"""
+    else:
+        strHolds = "  // (no sniper rifle or serious bombs in the First Encounter)\n"
+    sub(p, "  // draw cheat modes\n",
+"""#ifdef PLATFORM_IOS
+  // done: for the touch controls
+""" + strHolds + """  _hudIOSDone = _hudIOS;
+  _tmIOSHudDone = _pTimer->GetHighPrecisionTimer().GetSeconds();
+#endif
+
+  // draw cheat modes
+""", "  _hudIOSDone = _hudIOS;\n")
+
     print(game, "patched")

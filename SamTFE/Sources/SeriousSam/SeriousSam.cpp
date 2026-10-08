@@ -34,6 +34,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <SDL_main.h>
 extern "C" int IOS_IsInBackground(void);
 extern "C" void IOS_WaitForForeground(void);
+#include "IOSTouch.h"
 #endif
 #include <sys/stat.h>
 #include <Engine/CurrentVersion.h>
@@ -342,6 +343,73 @@ void UpdateInputEnabledState(void)
   _bReconsiderInput = FALSE;
 }
 
+
+#ifdef PLATFORM_IOS
+// A key press for the message loop, as if typed
+static void IOS_PushKey(SDL_Keycode iKey)
+{
+  SDL_Event ev;
+  SDL_zero(ev);
+  ev.type = SDL_KEYDOWN;
+  ev.key.windowID = SDL_GetWindowID((SDL_Window *) _hwndMain);
+  ev.key.state = SDL_PRESSED;
+  ev.key.keysym.sym = iKey;
+  ev.key.keysym.scancode = SDL_GetScancodeFromKey(iKey);
+  SDL_PushEvent(&ev);
+  ev.type = SDL_KEYUP;
+  ev.key.state = SDL_RELEASED;
+  SDL_PushEvent(&ev);
+}
+
+// Once a frame: tells the touch controls what the game is doing, and carries
+// out what the player asked for on them
+static void IOS_UpdateTouchControls(void)
+{
+  // gameplay controls only while a single-player game is being played; in
+  // menus, NETRICSA, demos and the intro touches are mouse clicks
+  const BOOL bComputer = !(_pGame->gm_csComputerState==CS_OFF || _pGame->gm_csComputerState==CS_ONINBACKGROUND);
+  int iMode = IOSTOUCH_HIDDEN;
+  if (_gmRunningGameMode==GM_SINGLE_PLAYER && _pGame->gm_bGameOn && !bMenuActive && !bMenuRendering && !bComputer) {
+    if (_pGame->gm_csConsoleState==CS_ON || _pGame->gm_csConsoleState==CS_TURNINGON) {
+      iMode = IOSTOUCH_CONSOLE;
+    } else if (_pGame->gm_csConsoleState==CS_OFF && _pInput->IsInputEnabled()) {
+      // paused (after the app was in the background): only Pause resumes
+      iMode = _pNetwork->IsPaused() ? IOSTOUCH_PAUSED : IOSTOUCH_GAMEPLAY;
+    }
+  }
+  IOSTouchHud hud;
+  IOS_GetHudState(&hud);
+  const int iRequests = IOSTouch_Update(_hwndMain, iMode, &hud);
+
+  // only what the buttons showing now can ask for
+  if ((iRequests&IOSTOUCH_REQ_MENU) && (iMode==IOSTOUCH_GAMEPLAY || iMode==IOSTOUCH_PAUSED)) {
+    IOS_PushKey(SDLK_ESCAPE);
+  }
+  if ((iRequests&IOSTOUCH_REQ_CONSOLE) && (iMode==IOSTOUCH_GAMEPLAY || iMode==IOSTOUCH_CONSOLE)) {
+    IOS_PushKey(SDLK_F1);
+  }
+  if ((iRequests&IOSTOUCH_REQ_RESUME) && iMode==IOSTOUCH_PAUSED) {
+    // the pause only goes off on the next game tick: don't put it back meanwhile
+    static DOUBLE tmResumed = -100.0;
+    const DOUBLE tmNow = _pTimer->GetHighPrecisionTimer().GetSeconds();
+    if (tmNow>tmResumed+0.5) {
+      _pNetwork->TogglePause();
+      tmResumed = tmNow;
+    }
+  }
+  if ((iRequests&IOSTOUCH_REQ_QUICKSAVE) && iMode==IOSTOUCH_GAMEPLAY) {
+    _pShell->SetINDEX("gam_bQuickSave", 1);  // the game saves it this frame
+  }
+  if ((iRequests&IOSTOUCH_REQ_QUICKLOAD) && iMode==IOSTOUCH_GAMEPLAY) {
+    // loading stops the game first, so a missing quicksave would end it
+    if (FileExists(_pGame->GetQuickSaveName(FALSE))) {
+      _pShell->SetINDEX("gam_bQuickLoad", 1);
+    } else {
+      CPrintF(TRANS("No quicksave yet\n"));
+    }
+  }
+}
+#endif
 
 // automaticaly manage pause toggling
 static void UpdatePauseState(void)
@@ -1220,6 +1288,7 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
       }
       IOS_WaitForForeground();
     }
+    IOS_UpdateTouchControls();
 #endif
     // while there are any messages in the message queue
     MSG msg;
