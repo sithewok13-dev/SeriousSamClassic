@@ -431,17 +431,21 @@ static inline INDEX GridCoord(double d)
 #define IOS_PLACT_USE_HELD    0
 #define IOS_PLACT_SNIPER_USE  0
 #define IOS_PLACT_FIREBOMB    0
+#define IOS_PLACT_USE_NOZOOM  0
 #else
 #define IOS_PLACT_USE_HELD    (1L<<9)
 #define IOS_PLACT_SNIPER_USE  (1L<<12)
 #define IOS_PLACT_FIREBOMB    (1L<<13)
+#define IOS_PLACT_USE_NOZOOM  (1L<<19)  // added to Player.es for iOS
 #endif
 
 // The touch controls' buttons as the player's button bits for this tick.
 // USE works like the default Use key (ctl_bUseOrComputer): use, and tapped
 // again within ctl_tmComputerDoubleClick NETRICSA -- or both at once, if the
-// player's settings say NETRICSA opens on a single click. ZOOM is plain use
-// (with the sniper rifle: scope on/off, held: zoom in).
+// player's settings say NETRICSA opens on a single click. But it never works
+// the sniper scope, which that key does when there is nothing to use: it
+// sends no USE_HELD or SNIPER_USE, and USE_NOZOOM with its press. ZOOM is
+// the scope: plain use (with the sniper rifle: scope on/off, held: zoom in).
 static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
 {
   static ULONG ulTouchLast = 0;
@@ -453,7 +457,6 @@ static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
   if (ulTouch&IOSTOUCH_BOMB)       ulActions |= IOS_PLACT_FIREBOMB;
   if (ulTouch&IOSTOUCH_ZOOM)       ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
   if (ulTouch&IOSTOUCH_USE) {
-    ulActions |= IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
     // just pressed
     if (!(ulTouchLast&IOSTOUCH_USE)) {
       const CPlayerSettings *pps = (const CPlayerSettings *)pc.pc_aubAppearance;
@@ -464,6 +467,7 @@ static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
       } else {
         ulActions |= (tmNow<=tmLastUse+tmDoubleClick) ? IOS_PLACT_COMPUTER : IOS_PLACT_USE;
       }
+      ulActions |= IOS_PLACT_USE_NOZOOM;
       tmLastUse = tmNow;
     }
   }
@@ -514,6 +518,38 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
 }
 """, "IOSTouch_ReadInput(&tiTouch);")
 
+    # The touch controls' USE never works the sniper scope (ZOOM does): with
+    # the rifle held, the Use key toggles the scope when there is nothing to
+    # use, and USE sits where a thumb hits it by accident. Game.cpp sends
+    # PLACT_USE_NOZOOM with its press. ECC takes no preprocessor lines in
+    # function bodies, so the bit is 0 except on iOS and the code testing it
+    # is on every platform, doing nothing there.
+    if game == "SamTSE":
+        p = src / "EntitiesMP/Player.es"
+        sub(p, "#define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)\n",
+"""#define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)
+#ifdef PLATFORM_IOS
+// With PLACT_USE or PLACT_COMPUTER from the touch controls' USE (GameMP/Game.cpp):
+// that use never works the sniper scope (their ZOOM button does), and with the
+// sniper rifle opens NETRICSA as with any other weapon.
+#define PLACT_USE_NOZOOM          (1L<<19)
+#else
+#define PLACT_USE_NOZOOM          0
+#endif
+""", "#define PLACT_USE_NOZOOM")
+        sub(p, """    if (ulNewButtons&PLACT_USE) {
+      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER) {
+""", """    if (ulNewButtons&PLACT_USE) {
+      // (the iOS touch controls' USE: as with any weapon, see PLACT_USE_NOZOOM)
+      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER && !(ulButtonsNow&PLACT_USE_NOZOOM)) {
+""", "WEAPON_SNIPER && !(ulButtonsNow&PLACT_USE_NOZOOM)")
+        sub(p, """    else if (!bSomethingToUse)
+    {
+""", """    // nothing to use: the sniper scope on or off (not for the iOS touch controls' USE)
+    else if (!bSomethingToUse && !(ulButtonsNow&PLACT_USE_NOZOOM))
+    {
+""", "!bSomethingToUse && !(ulButtonsNow&PLACT_USE_NOZOOM)")
+
     # drag-to-look: more mouse movement, before the mouse settings apply
     p = src / "Engine/Base/SDL/SDLInput.cpp"
     sub(p, "#include <Engine/Base/ErrorReporting.h>\n",
@@ -541,12 +577,17 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
     # clicks (PeekMessage still hands them out) and nothing else: a finger
     # that came down on a loading screen and stays down must not fire (Mouse
     # Button 1) or turn the view (SDL's relative mouse state counts it too)
-    # once the game is back. A real mouse or trackpad still does both.
+    # once the game is back. A real mouse or trackpad still does both. The
+    # fingers that come down are counted, for the menu's wait for a key to
+    # bind (see the menus by touch, below).
     sub(p, "static Sint16 mouse_relative_y = 0;\n",
 """static Sint16 mouse_relative_y = 0;
 #ifdef PLATFORM_IOS
 // mouse movement for looking, from a real mouse or trackpad only
 static SDL_atomic_t _iIOSMouseDX, _iIOSMouseDY;
+// fingers that came down on SDL's own view (the menus), for the menu's wait
+// for a key to bind: a touch is no button it could bind
+ENGINE_API INDEX inp_ctIOSTouchPresses = 0;
 #endif
 """, "static SDL_atomic_t _iIOSMouseDX, _iIOSMouseDY;")
     sub(p, "        case SDL_MOUSEMOTION:\n            mouse_relative_x += event->motion.xrel;\n",
@@ -561,10 +602,13 @@ static SDL_atomic_t _iIOSMouseDX, _iIOSMouseDY;
     sub(p, "        case SDL_MOUSEBUTTONUP:\n            if (event->button.button <= 5) {\n",
 """        case SDL_MOUSEBUTTONUP:
 #ifdef PLATFORM_IOS
-            if (event->button.which == SDL_TOUCH_MOUSEID) break;  // a touch: a menu click, not a mouse button
+            if (event->button.which == SDL_TOUCH_MOUSEID) {  // a touch: a menu click, not a mouse button
+              if (event->button.state == SDL_PRESSED) inp_ctIOSTouchPresses++;
+              break;
+            }
 #endif
             if (event->button.button <= 5) {
-""", "if (event->button.which == SDL_TOUCH_MOUSEID) break;")
+""", "if (event->button.which == SDL_TOUCH_MOUSEID) {  // a touch")
     sub(p, "  SDL_GetRelativeMouseState(&iMx, &iMy);\n",
 """  SDL_GetRelativeMouseState(&iMx, &iMy);
 #ifdef PLATFORM_IOS
@@ -608,6 +652,19 @@ static SDL_atomic_t _iIOSMouseDX, _iIOSMouseDY;
                 }
 #endif
 """, "SDL_strlcpy(strTextLeft, sdlevent.text.text + 1")
+    # a press or release says where it was, as on Windows: a finger moves
+    # SDL's pointer there with it, and by the time the message is handled
+    # SDL's mouse state may be at a later touch (the menus by touch, below)
+    sub(p, "            case SDL_MOUSEBUTTONDOWN:\n            case SDL_MOUSEBUTTONUP:\n",
+"""            case SDL_MOUSEBUTTONDOWN:
+            case SDL_MOUSEBUTTONUP:
+#ifdef PLATFORM_IOS
+                msg->lParam = (
+                                ((sdlevent.button.y << 16) & 0xFFFF0000) |
+                                ((sdlevent.button.x      ) & 0x0000FFFF)
+                              );
+#endif
+""", "((sdlevent.button.y << 16) & 0xFFFF0000)")
 
     # the main loop tells the overlay what the game is doing, once a frame,
     # and carries out what the player asked for on it
@@ -702,6 +759,212 @@ static void UpdatePauseState(void)
            "      IOS_WaitForForeground();\n    }\n    IOS_UpdateTouchControls();\n#endif\n",
         "    IOS_UpdateTouchControls();\n")
 
+    # ------------------------------------------------- the menus by touch
+    # A finger on SDL's own view (the overlay hides in the menus and NETRICSA)
+    # comes as a left click, but unlike a mouse it never hovered first: SDL
+    # moves the pointer there and presses in the same event pump, and the menu
+    # only works out what is under the pointer as it draws, after the frame's
+    # messages. So a tap went to whatever the previous one had left focused
+    # (OPTIONS opened HIGH SCORES), sliders took the old spot, and options
+    # such as INVERT LOOK could not be set. The menu now finds and focuses
+    # what is under the finger as it lands; NETRICSA learns where it is. Both
+    # take the spot from the press itself (SDLEvents.cpp, above): SDL's
+    # pointer may already be at a later touch waiting in the queue.
+    p = src / "SeriousSam/Menu.h"
+    sub(p, "void MenuOnMouseMove(PIX pixI, PIX pixJ);\n",
+"""void MenuOnMouseMove(PIX pixI, PIX pixJ);
+#ifdef PLATFORM_IOS
+void MenuOnTouchDown(PIX pixI, PIX pixJ);
+void MenuKeepSettings(void);
+#endif
+""", "void MenuOnTouchDown(PIX pixI, PIX pixJ);")
+    p = src / "SeriousSam/Menu.cpp"
+    sub(p, "static CTimerValue _tvInitialization;\n",
+"""#ifdef PLATFORM_IOS
+// A finger lands on the menu: SDL moves the pointer there and presses the
+// button together, before the next frame works out which gadget is under the
+// pointer (DoMenu) -- so find and focus it now, or the press goes to the
+// gadget the previous touch left focused (or is dropped). For a mouse, which
+// has hovered there already, this changes nothing. pixI, pixJ: where the
+// press is, from its message (SDL's pointer may be at a later touch by now).
+void MenuOnTouchDown(PIX pixI, PIX pixJ)
+{
+  extern CDrawPort *pdp;
+  if (pgmCurrentMenu==NULL || pdp==NULL) return;
+  POINT pt;
+  pt.x = pixI;
+  pt.y = pixJ;
+  extern INDEX sam_bWideScreen;
+  if (sam_bWideScreen) {
+    const PIX pixHeight = pdp->GetHeight();
+    pt.y -= (LONG) ((pixHeight/0.75f-pixHeight)/2);
+  }
+  // the gadget under it, as DoMenu finds it (the last visible one that contains it)
+  _pmgUnderCursor = NULL;
+  FOREACHINLIST( CMenuGadget, mg_lnNode, pgmCurrentMenu->gm_lhGadgets, itmg) {
+    if (itmg->mg_bVisible && FloatBoxToPixBox(pdp, itmg->mg_boxOnScreen)>=PIX2D(pt.x, pt.y)) {
+      _pmgUnderCursor = itmg;
+    }
+  }
+  // the focus to that gadget, as the next frame would, and the cursor there
+  // for the press (sliders read it). MenuUpdateMouseFocus moves the cursor to
+  // SDL's pointer, which is somewhere else only while a later touch waits in
+  // the queue: the next frame goes there, as after a mouse move.
+  _pixCursorPosI = _pixCursorExternPosI = pt.x;
+  _pixCursorPosJ = _pixCursorExternPosJ = pt.y;
+  _bMouseUsedLast = !_bEditingString && !_bDefiningKey;
+  MenuUpdateMouseFocus();
+  _pixCursorPosI = _pixCursorExternPosI = pt.x;
+  _pixCursorPosJ = _pixCursorExternPosJ = pt.y;
+}
+
+// The app goes to the background, where iOS may end it without a word.
+// Options > Controls and an axis's settings keep what is set in them until
+// they are left: save it now, as leaving them would. The menu stays up as it
+// was.
+void MenuKeepSettings(void)
+{
+  if (!bMenuActive) return;
+  if (pgmCurrentMenu==&gmControls) {
+    gmControls.ApplyActionSettings();
+    ControlsMenuOff();
+    ControlsMenuOn();
+  } else if (pgmCurrentMenu==&gmCustomizeAxisMenu) {
+    gmCustomizeAxisMenu.ApplyActionSettings();  // (and saved: ControlsMenuOff)
+    gmCustomizeAxisMenu.ObtainActionSettings(); // (ControlsMenuOn)
+  }
+}
+#endif
+
+static CTimerValue _tvInitialization;
+""", "void MenuOnTouchDown(PIX pixI, PIX pixJ)\n{")
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, "        } else if (msg.message==WM_LBUTTONDOWN || msg.message==WM_LBUTTONDBLCLK) {\n"
+           "          MenuOnKeyDown(VK_LBUTTON);\n",
+"""        } else if (msg.message==WM_LBUTTONDOWN || msg.message==WM_LBUTTONDBLCLK) {
+#ifdef PLATFORM_IOS
+          MenuOnTouchDown(LOWORD(msg.lParam), HIWORD(msg.lParam));
+#endif
+          MenuOnKeyDown(VK_LBUTTON);
+""", "          MenuOnTouchDown(LOWORD(msg.lParam), HIWORD(msg.lParam));\n")
+    # NETRICSA acts on a press where its pointer was last seen, which the
+    # main loop only tells it after the frame's messages
+    sub(p, "          ||msg.message==WM_RBUTTONUP) {\n"
+           "          if (_pGame->gm_csConsoleState!=CS_ON) {\n"
+           "            _pGame->ComputerKeyDown(msg);\n",
+"""          ||msg.message==WM_RBUTTONUP) {
+          if (_pGame->gm_csConsoleState!=CS_ON) {
+#ifdef PLATFORM_IOS
+            // a finger: the pointer jumped there with this press (its
+            // message says where), which NETRICSA would otherwise only learn
+            // after this frame's messages
+            if (msg.message==WM_LBUTTONDOWN && _pGame->gm_csComputerState!=CS_OFF && _pGame->gm_csComputerState!=CS_ONINBACKGROUND) {
+              _pGame->ComputerMouseMove(LOWORD(msg.lParam), HIWORD(msg.lParam));
+            }
+#endif
+            _pGame->ComputerKeyDown(msg);
+""", "_pGame->ComputerMouseMove(LOWORD(msg.lParam), HIWORD(msg.lParam));")
+    # No keyboard shows in the menus. A field being typed into (a player's
+    # name, a save's description) took no taps at all, so it could not be
+    # left: a tap on it now finishes it (Enter: a save gets saved), a tap
+    # anywhere else leaves it as it was (Escape).
+    p = src / "SeriousSam/Menu.cpp"
+    sub(p, "void MenuOnKeyDown( int iVKey)\n{\n\n  // check if mouse buttons used\n",
+"""void MenuOnKeyDown( int iVKey)
+{
+#ifdef PLATFORM_IOS
+  // no keyboard shows in the menus: while a field is being typed into (a
+  // player's name, a save's description), a tap on it finishes it, as Enter
+  // would, and a tap anywhere else leaves it as it was, as Escape would
+  // (MenuOnTouchDown has found what is under the finger)
+  if (_bEditingString && iVKey==VK_LBUTTON) {
+    iVKey = (_pmgUnderCursor!=NULL && _pmgUnderCursor->mg_bFocused) ? VK_RETURN : VK_ESCAPE;
+  }
+#endif
+
+  // check if mouse buttons used
+""", "iVKey = (_pmgUnderCursor!=NULL && _pmgUnderCursor->mg_bFocused) ? VK_RETURN : VK_ESCAPE;")
+    # Waiting for a key to bind (Customize controls), the menu takes no
+    # messages, and a touch is no button it could bind: the wait never ended
+    # without a keyboard or a controller. A tap now ends it, keeping the
+    # binding (SDLInput.cpp counts the fingers that come down).
+    p = src / "SeriousSam/MenuGadgets.cpp"
+    sub(p, "void CMGKeyDefinition::Think( void)\n{\n  if( mg_iState == RELEASE_RETURN_WAITING)\n  {\n",
+"""#ifdef PLATFORM_IOS
+extern ENGINE_API INDEX inp_ctIOSTouchPresses;
+static INDEX _ctIOSTouchPressesAsked = 0;
+#endif
+void CMGKeyDefinition::Think( void)
+{
+  if( mg_iState == RELEASE_RETURN_WAITING)
+  {
+#ifdef PLATFORM_IOS
+    _ctIOSTouchPressesAsked = inp_ctIOSTouchPresses;
+#endif
+""", "_ctIOSTouchPressesAsked = inp_ctIOSTouchPresses;")
+    sub(p, """        // refresh all buttons
+        pgmCurrentMenu->FillListItems();
+        break;
+      }
+    }
+  }
+}
+""", """        // refresh all buttons
+        pgmCurrentMenu->FillListItems();
+        break;
+      }
+    }
+#ifdef PLATFORM_IOS
+    // a finger tapped (touches can't be bound): stop waiting, keep the binding
+    if (mg_iState == PRESS_KEY_WAITING && inp_ctIOSTouchPresses != _ctIOSTouchPressesAsked) {
+      mg_iState = DOING_NOTHING;
+      _bDefiningKey = FALSE;
+      SetBindingNames(/*bDefining=*/FALSE);
+    }
+#endif
+  }
+}
+""", "inp_ctIOSTouchPresses != _ctIOSTouchPressesAsked")
+    # iOS may end the app without a word while it is in the background, so
+    # save the settings the game only writes as it quits (CGame::EndInternal)
+    # as it goes there: the shell-stored ones, such as Options > Controls'
+    # MOUSE ACCELERATION, the audio, video, game and HUD options, and what was
+    # set in the console; and the game's own (Data/SeriousSam.gms): the
+    # player picked in the menus and the high scores. The players' and
+    # controls' are saved as their menus are left; if the app goes away in
+    # Options > Controls (or an axis's settings), what is set there is saved
+    # as leaving would (MenuKeepSettings).
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, "        _pNetwork->TogglePause();\n      }\n      IOS_WaitForForeground();\n",
+"""        _pNetwork->TogglePause();
+      }
+      // iOS may end the app from here without a word: keep the settings
+      // the game only writes as it quits, or as their menu is left
+      MenuKeepSettings();
+      _pShell->StorePersistentSymbols(CTString("Scripts\\\\PersistentSymbols.ini"));
+      try {
+        _pGame->Save_t();
+      } catch (const char *strError) {
+        CPrintF("Cannot save game settings: %s\\n", strError);
+      }
+      IOS_WaitForForeground();
+""", "_pShell->StorePersistentSymbols(")
+
+    # the console's last lines, the clock, the stats and the pause indicators
+    # inside the HUD's frame too (the console's lines start at the top left)
+    p = src / "GameMP/Game.cpp"
+    sub(p, "    // create drawport for messages (left on DH)\n    CDrawPort dpMsg(pdpDrawPort, TRUE);\n",
+"""    // create drawport for messages (left on DH)
+#ifdef PLATFORM_IOS
+    // iOS: inside the screen's rounded corners and above the home indicator, as the HUD
+    float afIOSFrame[4];
+    IOSTouch_GetHudFrame(afIOSFrame);
+    CDrawPort dpMsg(pdpDrawPort, afIOSFrame[0], afIOSFrame[1], afIOSFrame[2]-afIOSFrame[0], afIOSFrame[3]-afIOSFrame[1]);
+#else
+    CDrawPort dpMsg(pdpDrawPort, TRUE);
+#endif
+""", "CDrawPort dpMsg(pdpDrawPort, afIOSFrame[0]")
+
     # no touch controls over the loading screen
     p = src / "GameMP/LoadingHook.cpp"
     sub(p, "#include <locale.h>\n",
@@ -760,6 +1023,75 @@ extern "C" void IOS_GetHudState(IOSTouchHud *pHud)
 
 // draw border with filter
 static void HUD_DrawBorder(""", "static void IOS_HudAddBorder(")
+    # the HUD lays itself out inside the frame the overlay gives (the screen
+    # less its rounded corners and the home indicator), as if that were the
+    # whole screen
+    sub(p, "// draw border with filter\nstatic void HUD_DrawBorder(",
+"""#ifdef PLATFORM_IOS
+// A drawport for the frame IOSTouch_GetHudFrame gives -- the screen less its
+// rounded corners and the home indicator -- that DrawHUD draws into while
+// this is in scope, as if it were the whole screen. It only moves the HUD:
+// nothing is cut off at the frame's edges. Back on the drawport DrawHUD was
+// given when it goes out of scope. No frame (a screen with square corners
+// and no home indicator): no change.
+static PIXaabbox2D IOS_HudFrameBox(CDrawPort *pdp)
+{
+  float af[4];
+  IOSTouch_GetHudFrame(af);
+  const PIX pixRW = pdp->dp_Raster->ra_Width;
+  const PIX pixRH = pdp->dp_Raster->ra_Height;
+  const PIX pixL = Clamp((PIX)ceil( af[0]*pixRW)-pdp->dp_MinI, (PIX)0,    (PIX)pdp->GetWidth());
+  const PIX pixT = Clamp((PIX)ceil( af[1]*pixRH)-pdp->dp_MinJ, (PIX)0,    (PIX)pdp->GetHeight());
+  const PIX pixR = Clamp((PIX)floor(af[2]*pixRW)-pdp->dp_MinI, pixL+1, (PIX)pdp->GetWidth());
+  const PIX pixB = Clamp((PIX)floor(af[3]*pixRH)-pdp->dp_MinJ, pixT+1, (PIX)pdp->GetHeight());
+  return PIXaabbox2D(PIX2D(pixL, pixT), PIX2D(pixR, pixB));
+}
+
+class CIOSHudFrame {
+public:
+  CDrawPort *ihf_pdpWhole;
+  CDrawPort ihf_dpFrame;
+  BOOL ihf_bOn;
+  CIOSHudFrame(CDrawPort *pdp) : ihf_pdpWhole(pdp), ihf_dpFrame(pdp, IOS_HudFrameBox(pdp)), ihf_bOn(FALSE)
+  {
+    if (ihf_dpFrame.GetWidth()==pdp->GetWidth() && ihf_dpFrame.GetHeight()==pdp->GetHeight()) return;
+    // clipped as the whole drawport is
+    ihf_dpFrame.dp_ScissorMinI = pdp->dp_ScissorMinI;
+    ihf_dpFrame.dp_ScissorMinJ = pdp->dp_ScissorMinJ;
+    ihf_dpFrame.dp_ScissorMaxI = pdp->dp_ScissorMaxI;
+    ihf_dpFrame.dp_ScissorMaxJ = pdp->dp_ScissorMaxJ;
+    pdp->Unlock();
+    ihf_bOn = ihf_dpFrame.Lock();
+    if (!ihf_bOn) pdp->Lock();
+  }
+  ~CIOSHudFrame()
+  {
+    if (!ihf_bOn) return;
+    ihf_dpFrame.Unlock();
+    ihf_pdpWhole->Lock();
+    _pDP = ihf_pdpWhole;
+  }
+};
+#endif
+
+// draw border with filter
+static void HUD_DrawBorder(""", "class CIOSHudFrame {")
+    sub(p, "  // prepare font and text dimensions\n  CTString strValue;\n",
+"""#ifdef PLATFORM_IOS
+  // the rest inside the screen's rounded corners and above the home indicator
+  // (the Second Encounter's sniper mask, above, still covers the whole screen)
+  CIOSHudFrame ihf(pdpCurrent);
+  if (ihf.ihf_bOn) {
+    _pDP = &ihf.ihf_dpFrame;
+    _pixDPWidth  = _pDP->GetWidth();
+    _pixDPHeight = _pDP->GetHeight();
+    _fResolutionScaling  = (FLOAT)_pixDPWidth /640.0f;
+    _fResolutionScalingY = (FLOAT)_pixDPHeight/480.0f;
+  }
+#endif
+  // prepare font and text dimensions
+  CTString strValue;
+""", "CIOSHudFrame ihf(pdpCurrent);")
     sub(p, "  const FLOAT fDown  = fCenterJ  + fSizeJ/2 +1;\n",
 """  const FLOAT fDown  = fCenterJ  + fSizeJ/2 +1;
 #ifdef PLATFORM_IOS
@@ -784,25 +1116,42 @@ static void HUD_DrawBorder(""", "static void IOS_HudAddBorder(")
     sub(p, "    // prepare and draw hiscore info \n",
            "#ifdef PLATFORM_IOS\n    _iIOSHudPart = IOS_HUD_HISCORE;\n#endif\n    // prepare and draw hiscore info \n",
         "    _iIOSHudPart = IOS_HUD_HISCORE;\n")
-    # the unread messages box, measured where it sits when it shows (it
-    # slides in and out, and only shows while there are unread messages)
+    # the unread messages box goes in the top row, right of the high score box:
+    # on PC it sits at the bottom right, under the touch controls' FIRE (the
+    # legacy HUD's top right is under MENU). Measured where it sits when it
+    # shows (it only shows while there are unread messages); a new message
+    # drops it down from there and back, as it slid in on PC. It still blinks.
     sub(p, "    // prepare and draw unread messages\n",
 """#ifdef PLATFORM_IOS
+    const FLOAT fRowIOSMsg = pixTopBound+fHalfUnit;
+    const FLOAT fColIOSMsg = 320.0f-fOneUnit+fAdvUnit+fHalfUnit+fChrUnit*4;
     {
-      const FLOAT fRowM = hud_bLegacyHUD ? pixTopBound+fHalfUnit
-                        : pixBottomBound-(fNextUnit+fHalfUnit)*_fArmorHeightAdjuster-21.0f;
-      const FLOAT fColM = pixRightBound-fHalfUnit-fAdvUnit-fChrUnit*4;
       const FLOAT fAdvM = fAdvUnit+fChrUnit*4/2-fHalfUnit;
       _iIOSHudPart = IOS_HUD_MESSAGES;
       _bIOSHudMeasureOnly = TRUE;
-      HUD_DrawBorder( fColM,       fRowM, fOneUnit,   fOneUnit, colBorder);
-      HUD_DrawBorder( fColM+fAdvM, fRowM, fChrUnit*4, fOneUnit, colBorder);
+      HUD_DrawBorder( fColIOSMsg,       fRowIOSMsg, fOneUnit,   fOneUnit, colBorder);
+      HUD_DrawBorder( fColIOSMsg+fAdvM, fRowIOSMsg, fChrUnit*4, fOneUnit, colBorder);
       _bIOSHudMeasureOnly = FALSE;
       _iIOSHudPart = IOS_HUD_NONE;
     }
 #endif
     // prepare and draw unread messages
 """, "_iIOSHudPart = IOS_HUD_MESSAGES;")
+    sub(p, "      fCol = pixRightBound-fHalfUnit-fAdvUnit-fChrUnit*4;\n      const FLOAT tmIn = 0.5f;\n",
+"""      fCol = pixRightBound-fHalfUnit-fAdvUnit-fChrUnit*4;
+#ifdef PLATFORM_IOS
+      fRow = fRowIOSMsg;
+      fCol = fColIOSMsg;
+#endif
+      const FLOAT tmIn = 0.5f;
+""", "      fRow = fRowIOSMsg;\n")
+    sub(p, "        fCol-=fAdvUnit*15*fRatio;\n",
+"""        fCol-=fAdvUnit*15*fRatio;
+#ifdef PLATFORM_IOS
+        fRow = fRowIOSMsg+fAdvUnit*5*fRatio;
+        fCol = fColIOSMsg;
+#endif
+""", "fRow = fRowIOSMsg+fAdvUnit*5*fRatio;")
     # the leftmost ammo box is this many boxes left of the rightmost one: all
     # 8 ammo types, plus the serious bomb in the Second Encounter
     ctAmmoAdv = 8 if game == "SamTSE" else 7
@@ -824,8 +1173,73 @@ static void HUD_DrawBorder(""", "static void IOS_HudAddBorder(")
   }
 #endif
 """ % ctAmmoAdv, "_iIOSHudPart = IOS_HUD_AMMO;")
+    # The Second Encounter's power-ups go in the top row, in the gap between
+    # the score and the high score: above the ammo row at the bottom right,
+    # as on PC, they sat under the touch controls' FIRE (and ZOOM), and they
+    # blink, and beep, as they run out. Drawn once the top row's sizes are
+    # known; the same boxes, icons, bars and sound as on PC, left to right.
     if game == "SamTSE":
-        strHolds = """  _hudIOS.bSniper = (_penWeapons->m_iCurrentWeapon==WEAPON_SNIPER);
+        sub(p, "  // draw powerup(s) if needed\n",
+"""  // draw powerup(s) if needed
+#ifndef PLATFORM_IOS  // (iOS: in the top row, below)
+""", "#ifndef PLATFORM_IOS  // (iOS: in the top row, below)")
+        sub(p, "    fCol -= fAdvUnitS;\n  }\n\n#define TXT_WIDTH_SCORE",
+               "    fCol -= fAdvUnitS;\n  }\n#endif // PLATFORM_IOS\n\n#define TXT_WIDTH_SCORE",
+            "  }\n#endif // PLATFORM_IOS\n\n#define TXT_WIDTH_SCORE")
+        sub(p, "  fNextUnit *= fUpperSize;\n\n  // draw oxygen info if needed\n",
+"""  fNextUnit *= fUpperSize;
+
+#ifdef PLATFORM_IOS
+  // the power-ups, in the top row between the score and the high score (on
+  // PC they are above the ammo row, where the touch controls' FIRE is):
+  // room for all four, centred in the gap, smaller if the gap is narrow (a
+  // larger HUD), left to right
+  {
+    PrepareColorTransitions( colMax, colTop, colMid, C_RED, 0.66f, 0.33f, FALSE);
+    TIME *ptmPowerups = (TIME*)&_penPlayer->m_tmInvisibility;
+    TIME *ptmPowerupsMax = (TIME*)&_penPlayer->m_tmInvisibilityMax;
+    const FLOAT fGapL = pixLeftBound+fAdvUnit+fChrUnit*8;          // the score's value box ends
+    const FLOAT fGapR = 320.0f-fOneUnit-fChrUnit*4-fHalfUnit;      // the high score's icon begins
+    const FLOAT fSize = Clamp((fGapR-fGapL-fHalfUnit)/(3*fAdvUnit+fOneUnit), 0.5f, 1.0f);
+    const FLOAT fOneP = fOneUnit*fSize;
+    const FLOAT fAdvP = fAdvUnit*fSize;
+    const FLOAT fScaling = _fCustomScaling;
+    fRow = pixTopBound+fHalfUnit;
+    fCol = (fGapL+fGapR-3*fAdvP)*0.5f;
+    for( i=0; i<MAX_POWERUPS; i++)
+    {
+      // skip if not active
+      const TIME tmDelta = ptmPowerups[i] - _tmNow;
+      if( tmDelta<=0) continue;
+      fNormValue = tmDelta / ptmPowerupsMax[i];
+      // draw icon and a little bar (in the box as on PC)
+      _fCustomScalingAdjustment = 1.0f;
+      HUD_DrawBorder( fCol, fRow, fOneP, fOneP, colBorder);
+      _fCustomScaling = fScaling*fSize;
+      _fCustomScalingAdjustment = 0.5f/0.7f;
+      HUD_DrawIcon(   fCol,              fRow, _atoPowerups[i], C_WHITE /*_colHUD*/, fNormValue, TRUE);
+      HUD_DrawBar(    fCol+fOneP*0.5f,   fRow, (INDEX) (fOneP/5), (INDEX) (fOneP-2), BO_DOWN, NONE, fNormValue);
+      _fCustomScaling = fScaling;
+      _fCustomScalingAdjustment = 1.0f;
+      // play sound if icon is flashing
+      if(fNormValue<=(_cttHUD.ctt_fLowMedium/2)) {
+        // activate blinking only if value is <= half the low edge
+        INDEX iLastTime = (INDEX)(_tmLast*4);
+        INDEX iCurrentTime = (INDEX)(_tmNow*4);
+        if(iCurrentTime&1 & !(iLastTime&1)) {
+          ((CPlayer *)penPlayerCurrent)->PlayPowerUpSound();
+        }
+      }
+      // advance to next position
+      fCol += fAdvP;
+    }
+  }
+#endif
+
+  // draw oxygen info if needed
+""", "the power-ups, in the top row between the score and the high score")
+    if game == "SamTSE":
+        strHolds ="""  _hudIOS.bSniper = (_penWeapons->m_iCurrentWeapon==WEAPON_SNIPER);
   _hudIOS.ctBombs = _penPlayer->m_iSeriousBombCount;
 """
     else:

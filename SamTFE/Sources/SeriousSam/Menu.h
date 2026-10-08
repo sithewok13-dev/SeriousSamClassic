@@ -11,6 +11,10 @@ void DestroyMenus( void);
 void MenuOnKeyDown( int iVKey);
 void MenuOnChar(MSG msg);
 void MenuOnMouseMove(PIX pixI, PIX pixJ);
+#ifdef PLATFORM_IOS
+void MenuOnTouchDown(PIX pixI, PIX pixJ);
+void MenuKeepSettings(void);
+#endif
 void MenuOnLMBDown(void);
 BOOL DoMenu( CDrawPort *pdp); // returns TRUE if still active, FALSE if should quit
 void StartMenus( const char *str="");

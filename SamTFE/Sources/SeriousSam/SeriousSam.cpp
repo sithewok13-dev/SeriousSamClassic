@@ -1299,6 +1299,15 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
       if (_gmRunningGameMode==GM_SINGLE_PLAYER && !_pNetwork->IsPaused()) {
         _pNetwork->TogglePause();
       }
+      // iOS may end the app from here without a word: keep the settings
+      // the game only writes as it quits, or as their menu is left
+      MenuKeepSettings();
+      _pShell->StorePersistentSymbols(CTString("Scripts\\PersistentSymbols.ini"));
+      try {
+        _pGame->Save_t();
+      } catch (const char *strError) {
+        CPrintF("Cannot save game settings: %s\n", strError);
+      }
       IOS_WaitForForeground();
     }
     IOS_UpdateTouchControls();
@@ -1515,6 +1524,14 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
           ||msg.message==WM_LBUTTONUP
           ||msg.message==WM_RBUTTONUP) {
           if (_pGame->gm_csConsoleState!=CS_ON) {
+#ifdef PLATFORM_IOS
+            // a finger: the pointer jumped there with this press (its
+            // message says where), which NETRICSA would otherwise only learn
+            // after this frame's messages
+            if (msg.message==WM_LBUTTONDOWN && _pGame->gm_csComputerState!=CS_OFF && _pGame->gm_csComputerState!=CS_ONINBACKGROUND) {
+              _pGame->ComputerMouseMove(LOWORD(msg.lParam), HIWORD(msg.lParam));
+            }
+#endif
             _pGame->ComputerKeyDown(msg);
           }
         }
@@ -1525,6 +1542,9 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
         if(msg.message==WM_KEYDOWN) {
           MenuOnKeyDown( msg.wParam);
         } else if (msg.message==WM_LBUTTONDOWN || msg.message==WM_LBUTTONDBLCLK) {
+#ifdef PLATFORM_IOS
+          MenuOnTouchDown(LOWORD(msg.lParam), HIWORD(msg.lParam));
+#endif
           MenuOnKeyDown(VK_LBUTTON);
         } else if (msg.message==WM_RBUTTONDOWN || msg.message==WM_RBUTTONDBLCLK) {
           MenuOnKeyDown(VK_RBUTTON);

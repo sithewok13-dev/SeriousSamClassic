@@ -287,6 +287,14 @@ static void KillAllEnemies(CEntity *penKiller)
 #define PLACT_FIREBOMB            (1L<<13)
 #define PLACT_SELECT_WEAPON_SHIFT (14)
 #define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)
+#ifdef PLATFORM_IOS
+// With PLACT_USE or PLACT_COMPUTER from the touch controls' USE (GameMP/Game.cpp):
+// that use never works the sniper scope (their ZOOM button does), and with the
+// sniper rifle opens NETRICSA as with any other weapon.
+#define PLACT_USE_NOZOOM          (1L<<19)
+#else
+#define PLACT_USE_NOZOOM          0
+#endif
                                      
 #define MAX_WEAPONS 30
 
@@ -3568,7 +3576,8 @@ functions:
       // call computer
       ComputerPressed();
     }
-    else if (!bSomethingToUse)
+    // nothing to use: the sniper scope on or off (not for the iOS touch controls' USE)
+    else if (!bSomethingToUse && !(ulButtonsNow&PLACT_USE_NOZOOM))
     {
       CPlayerWeapons *penWeapon = GetPlayerWeapons();
      
@@ -4626,7 +4635,8 @@ functions:
 
     // if use is pressed
     if (ulNewButtons&PLACT_USE) {
-      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER) {
+      // (the iOS touch controls' USE: as with any weapon, see PLACT_USE_NOZOOM)
+      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER && !(ulButtonsNow&PLACT_USE_NOZOOM)) {
         UsePressed(FALSE);
       } else {
         UsePressed(ulNewButtons&PLACT_COMPUTER);

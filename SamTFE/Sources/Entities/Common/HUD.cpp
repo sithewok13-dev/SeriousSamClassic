@@ -454,6 +454,53 @@ extern "C" void IOS_GetHudState(IOSTouchHud *pHud)
 }
 #endif
 
+#ifdef PLATFORM_IOS
+// A drawport for the frame IOSTouch_GetHudFrame gives -- the screen less its
+// rounded corners and the home indicator -- that DrawHUD draws into while
+// this is in scope, as if it were the whole screen. It only moves the HUD:
+// nothing is cut off at the frame's edges. Back on the drawport DrawHUD was
+// given when it goes out of scope. No frame (a screen with square corners
+// and no home indicator): no change.
+static PIXaabbox2D IOS_HudFrameBox(CDrawPort *pdp)
+{
+  float af[4];
+  IOSTouch_GetHudFrame(af);
+  const PIX pixRW = pdp->dp_Raster->ra_Width;
+  const PIX pixRH = pdp->dp_Raster->ra_Height;
+  const PIX pixL = Clamp((PIX)ceil( af[0]*pixRW)-pdp->dp_MinI, (PIX)0,    (PIX)pdp->GetWidth());
+  const PIX pixT = Clamp((PIX)ceil( af[1]*pixRH)-pdp->dp_MinJ, (PIX)0,    (PIX)pdp->GetHeight());
+  const PIX pixR = Clamp((PIX)floor(af[2]*pixRW)-pdp->dp_MinI, pixL+1, (PIX)pdp->GetWidth());
+  const PIX pixB = Clamp((PIX)floor(af[3]*pixRH)-pdp->dp_MinJ, pixT+1, (PIX)pdp->GetHeight());
+  return PIXaabbox2D(PIX2D(pixL, pixT), PIX2D(pixR, pixB));
+}
+
+class CIOSHudFrame {
+public:
+  CDrawPort *ihf_pdpWhole;
+  CDrawPort ihf_dpFrame;
+  BOOL ihf_bOn;
+  CIOSHudFrame(CDrawPort *pdp) : ihf_pdpWhole(pdp), ihf_dpFrame(pdp, IOS_HudFrameBox(pdp)), ihf_bOn(FALSE)
+  {
+    if (ihf_dpFrame.GetWidth()==pdp->GetWidth() && ihf_dpFrame.GetHeight()==pdp->GetHeight()) return;
+    // clipped as the whole drawport is
+    ihf_dpFrame.dp_ScissorMinI = pdp->dp_ScissorMinI;
+    ihf_dpFrame.dp_ScissorMinJ = pdp->dp_ScissorMinJ;
+    ihf_dpFrame.dp_ScissorMaxI = pdp->dp_ScissorMaxI;
+    ihf_dpFrame.dp_ScissorMaxJ = pdp->dp_ScissorMaxJ;
+    pdp->Unlock();
+    ihf_bOn = ihf_dpFrame.Lock();
+    if (!ihf_bOn) pdp->Lock();
+  }
+  ~CIOSHudFrame()
+  {
+    if (!ihf_bOn) return;
+    ihf_dpFrame.Unlock();
+    ihf_pdpWhole->Lock();
+    _pDP = ihf_pdpWhole;
+  }
+};
+#endif
+
 // draw border with filter
 static void HUD_DrawBorder( FLOAT fCenterX, FLOAT fCenterY, FLOAT fSizeX, FLOAT fSizeY, COLOR colTiles)
 {
@@ -665,6 +712,18 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
     }
   }
 
+#ifdef PLATFORM_IOS
+  // the rest inside the screen's rounded corners and above the home indicator
+  // (the Second Encounter's sniper mask, above, still covers the whole screen)
+  CIOSHudFrame ihf(pdpCurrent);
+  if (ihf.ihf_bOn) {
+    _pDP = &ihf.ihf_dpFrame;
+    _pixDPWidth  = _pDP->GetWidth();
+    _pixDPHeight = _pDP->GetHeight();
+    _fResolutionScaling  = (FLOAT)_pixDPWidth /640.0f;
+    _fResolutionScalingY = (FLOAT)_pixDPHeight/480.0f;
+  }
+#endif
   // prepare font and text dimensions
   CTString strValue;
   PIX pixCharWidth;
@@ -1208,15 +1267,14 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
     HUD_DrawIcon(   fCol,      fRow, _toHiScore, _colHUD, 1.0f, FALSE);
 
 #ifdef PLATFORM_IOS
+    const FLOAT fRowIOSMsg = pixTopBound+fHalfUnit;
+    const FLOAT fColIOSMsg = 320.0f-fOneUnit+fAdvUnit+fHalfUnit+fChrUnit*4;
     {
-      const FLOAT fRowM = hud_bLegacyHUD ? pixTopBound+fHalfUnit
-                        : pixBottomBound-(fNextUnit+fHalfUnit)*_fArmorHeightAdjuster-21.0f;
-      const FLOAT fColM = pixRightBound-fHalfUnit-fAdvUnit-fChrUnit*4;
       const FLOAT fAdvM = fAdvUnit+fChrUnit*4/2-fHalfUnit;
       _iIOSHudPart = IOS_HUD_MESSAGES;
       _bIOSHudMeasureOnly = TRUE;
-      HUD_DrawBorder( fColM,       fRowM, fOneUnit,   fOneUnit, colBorder);
-      HUD_DrawBorder( fColM+fAdvM, fRowM, fChrUnit*4, fOneUnit, colBorder);
+      HUD_DrawBorder( fColIOSMsg,       fRowIOSMsg, fOneUnit,   fOneUnit, colBorder);
+      HUD_DrawBorder( fColIOSMsg+fAdvM, fRowIOSMsg, fChrUnit*4, fOneUnit, colBorder);
       _bIOSHudMeasureOnly = FALSE;
       _iIOSHudPart = IOS_HUD_NONE;
     }
@@ -1231,6 +1289,10 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
         fRow = pixBottomBound- (fNextUnit+fHalfUnit) * _fArmorHeightAdjuster - 21.0f; 
       }
       fCol = pixRightBound-fHalfUnit-fAdvUnit-fChrUnit*4;
+#ifdef PLATFORM_IOS
+      fRow = fRowIOSMsg;
+      fCol = fColIOSMsg;
+#endif
       const FLOAT tmIn = 0.5f;
       const FLOAT tmOut = 0.5f;
       const FLOAT tmStay = 2.0f;
@@ -1251,6 +1313,10 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
           fRow-=fAdvUnit*5*fRatio;
         }
         fCol-=fAdvUnit*15*fRatio;
+#ifdef PLATFORM_IOS
+        fRow = fRowIOSMsg+fAdvUnit*5*fRatio;
+        fCol = fColIOSMsg;
+#endif
         col = LerpColor(_colHUD, C_WHITE|0xFF, fRatio);
       }
       fAdv = fAdvUnit+ fChrUnit*4/2 -fHalfUnit;

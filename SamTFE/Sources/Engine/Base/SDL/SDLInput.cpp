@@ -61,6 +61,9 @@ static Sint16 mouse_relative_y = 0;
 #ifdef PLATFORM_IOS
 // mouse movement for looking, from a real mouse or trackpad only
 static SDL_atomic_t _iIOSMouseDX, _iIOSMouseDY;
+// fingers that came down on SDL's own view (the menus), for the menu's wait
+// for a key to bind: a touch is no button it could bind
+ENGINE_API INDEX inp_ctIOSTouchPresses = 0;
 #endif
 
 INDEX inp_iMButton4Dn = 0x20040;
@@ -346,7 +349,10 @@ static void sdl_event_handler(const SDL_Event *event)
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP:
 #ifdef PLATFORM_IOS
-            if (event->button.which == SDL_TOUCH_MOUSEID) break;  // a touch: a menu click, not a mouse button
+            if (event->button.which == SDL_TOUCH_MOUSEID) {  // a touch: a menu click, not a mouse button
+              if (event->button.state == SDL_PRESSED) inp_ctIOSTouchPresses++;
+              break;
+            }
 #endif
             if (event->button.button <= 5) {
               int button = KID_MOUSE1;

@@ -5,20 +5,31 @@
      - a floating move stick under the left thumb (anywhere in the left 42%
        of the screen): analog movement, straight into the player's action
      - drag-to-look anywhere else, fed in as mouse movement (so the game's
-       mouse sensitivity, invert and smoothing settings apply)
+       mouse settings apply: Options > Controls' SENSITIVITY, INVERT LOOK
+       and SMOOTH AXIS; the look speed is set for MOUSE ACCELERATION on, as
+       it is by default)
      - buttons. Bottom right: FIRE, with CROUCH / USE / JUMP on an arc around
        it; ZOOM above the ammo row while the sniper rifle is held and BOMB
        beside JUMP while there are serious bombs (both Second Encounter
-       only). Dragging on any of these also looks, except BOMB, which goes
-       off as the finger lifts on it (so a look swipe can't waste a bomb).
-       Top left: NEXT and PREV
-       weapon, below the score. Top right: QUICK SAVE, QUICK LOAD (hold
-       until the ring fills) and MENU.
+       only). USE works switches and, tapped twice, opens NETRICSA, but
+       never the sniper scope: only ZOOM does. Dragging on any of these also
+       looks, except BOMB, which goes off as the finger lifts on it (so a
+       look swipe can't waste a bomb). Top left: NEXT and PREV weapon, below
+       the score. Top right: QUICK SAVE, QUICK LOAD and MENU.
+     - QUICK SAVE and QUICK LOAD only go off when held: a ring round the
+       button fills while it is held (0.3 s), and lifting before it is full
+       does nothing. Each saves or loads once the finger is known to have
+       stayed on it that long (a frame after the ring fills): once, however
+       many fingers hold it. A finger that slides off doesn't save or load
+       at all, even if it comes back on. Held together, the one found
+       complete first goes off and ends the other's hold (QUICK SAVE if both
+       are found complete in the same frame, e.g. after a long one): never a
+       save and a load from one press.
      - MENU: a tap opens the menu (as the finger lifts). Held until its ring
        fills (0.45 s), it opens a small tray just under it instead: the
        keyboard (opens the console with the iOS keyboard, for cheats;
        tapping it again closes both) and FPS (shows or hides a frame rate
-       readout left of QUICK SAVE, remembered across launches). Slide the
+       readout by QUICK SAVE, remembered across launches). Slide the
        held thumb onto one, or lift and tap it; a touch anywhere else closes
        the tray.
    Buttons act on the player directly, not through key bindings, so they
@@ -27,8 +38,17 @@
    open only MENU, lit up: a tap on it (or its tray's keyboard) closes the
    console and the iOS keyboard, back to the game. In menus, NETRICSA,
    demos and while a level loads the overlay hides, so touches reach SDL as
-   mouse clicks as before. If SDL's window is recreated the overlay follows
-   it.
+   mouse clicks as before; patch_engine.py makes the menus and NETRICSA act
+   on what a tap lands on (a mouse hovers there first, a finger doesn't), and
+   a tap ends a wait for a key to bind or the typing of a name. If SDL's
+   window is recreated the overlay follows it.
+
+   The HUD and the game's other text on the screen keep inside
+   IOSTouch_GetHudFrame: clear of the screen's rounded corners, the home
+   indicator and a notch. Two things that blink sit in the HUD's top row
+   instead of under FIRE at the bottom right as on PC: the unread messages
+   box, right of the high score, and the Second Encounter's power-ups,
+   between the score and the high score.
 
    Threads: IOSTouch_Update and IOSTouch_Hide run on the main thread,
    IOSTouch_ReadInput on the game's input thread (SDLTimer, once per game
@@ -57,7 +77,7 @@ typedef struct IOSTouchHud {
   float afScore[4];    /* the score box, top left */
   float afHiScore[4];  /* the high score box, top middle */
   float afAmmo[4];     /* the row of ammo boxes, bottom right, at its widest */
-  float afMessages[4]; /* the unread messages box, where it sits when it shows */
+  float afMessages[4]; /* the unread messages box, where it sits when it shows (top row) */
   int bSniper;      /* holding the sniper rifle (Second Encounter) */
   int ctBombs;      /* serious bombs (Second Encounter) */
 } IOSTouchHud;
@@ -74,7 +94,7 @@ enum {
 /* Buttons as the game reads them once per tick (IOSTouchInput.ulButtons) */
 enum {
   IOSTOUCH_FIRE       = 1 << 0,
-  IOSTOUCH_USE        = 1 << 1, /* use; tapped twice: NETRICSA */
+  IOSTOUCH_USE        = 1 << 1, /* use; tapped twice: NETRICSA. Never the sniper scope */
   IOSTOUCH_JUMP       = 1 << 2,
   IOSTOUCH_CROUCH     = 1 << 3,
   IOSTOUCH_NEXTWEAPON = 1 << 4,
@@ -95,6 +115,11 @@ typedef struct IOSTouchInput {
    counts. Returns the IOSTOUCH_REQ_* the player asked for since the last
    call. */
 int IOSTouch_Update(void *pSDLWindow, int iMode, const IOSTouchHud *pHud, unsigned int ulFramesDrawn);
+/* Main thread: where the HUD lays itself out, and the game's messages, clock
+   and stats: the screen less its rounded corners and the home indicator (see
+   IOSTouch.m), as x0, y0, x1, y1 fractions of the screen. The whole screen
+   until IOSTouch_Update has seen SDL's view. */
+void IOSTouch_GetHudFrame(float afFrame[4]);
 /* Main thread: hide now (a level is loading); the next update shows it again */
 void IOSTouch_Hide(void);
 /* Game input thread, once per game tick: the stick and the buttons. A button

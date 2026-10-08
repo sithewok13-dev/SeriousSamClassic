@@ -1871,10 +1871,17 @@ void CMGKeyDefinition::DefineKey(INDEX iDik)
   SetBindingNames(/*bDefining=*/FALSE);
 }
 
+#ifdef PLATFORM_IOS
+extern ENGINE_API INDEX inp_ctIOSTouchPresses;
+static INDEX _ctIOSTouchPressesAsked = 0;
+#endif
 void CMGKeyDefinition::Think( void)
 {
   if( mg_iState == RELEASE_RETURN_WAITING)
   {
+#ifdef PLATFORM_IOS
+    _ctIOSTouchPressesAsked = inp_ctIOSTouchPresses;
+#endif
     _bDefiningKey = TRUE;
     extern BOOL _bMouseUsedLast;
     _bMouseUsedLast = FALSE;
@@ -1917,6 +1924,14 @@ void CMGKeyDefinition::Think( void)
         break;
       }
     }
+#ifdef PLATFORM_IOS
+    // a finger tapped (touches can't be bound): stop waiting, keep the binding
+    if (mg_iState == PRESS_KEY_WAITING && inp_ctIOSTouchPresses != _ctIOSTouchPressesAsked) {
+      mg_iState = DOING_NOTHING;
+      _bDefiningKey = FALSE;
+      SetBindingNames(/*bDefining=*/FALSE);
+    }
+#endif
   }
 }
 

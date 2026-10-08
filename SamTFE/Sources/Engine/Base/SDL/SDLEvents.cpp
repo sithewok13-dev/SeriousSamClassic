@@ -103,6 +103,12 @@ BOOL PeekMessage(MSG *msg, void *hwnd, UINT wMsgFilterMin,
 
             case SDL_MOUSEBUTTONDOWN:
             case SDL_MOUSEBUTTONUP:
+#ifdef PLATFORM_IOS
+                msg->lParam = (
+                                ((sdlevent.button.y << 16) & 0xFFFF0000) |
+                                ((sdlevent.button.x      ) & 0x0000FFFF)
+                              );
+#endif
                 if (sdlevent.button.button == SDL_BUTTON_LEFT)
                     msg->message = (sdlevent.button.state == SDL_PRESSED) ? WM_LBUTTONDOWN : WM_LBUTTONUP;
                 else if (sdlevent.button.button == SDL_BUTTON_RIGHT)

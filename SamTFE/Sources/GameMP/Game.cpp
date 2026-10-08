@@ -774,17 +774,21 @@ FLOAT CControls::GetAxisValue(INDEX iAxis)
 #define IOS_PLACT_USE_HELD    0
 #define IOS_PLACT_SNIPER_USE  0
 #define IOS_PLACT_FIREBOMB    0
+#define IOS_PLACT_USE_NOZOOM  0
 #else
 #define IOS_PLACT_USE_HELD    (1L<<9)
 #define IOS_PLACT_SNIPER_USE  (1L<<12)
 #define IOS_PLACT_FIREBOMB    (1L<<13)
+#define IOS_PLACT_USE_NOZOOM  (1L<<19)  // added to Player.es for iOS
 #endif
 
 // The touch controls' buttons as the player's button bits for this tick.
 // USE works like the default Use key (ctl_bUseOrComputer): use, and tapped
 // again within ctl_tmComputerDoubleClick NETRICSA -- or both at once, if the
-// player's settings say NETRICSA opens on a single click. ZOOM is plain use
-// (with the sniper rifle: scope on/off, held: zoom in).
+// player's settings say NETRICSA opens on a single click. But it never works
+// the sniper scope, which that key does when there is nothing to use: it
+// sends no USE_HELD or SNIPER_USE, and USE_NOZOOM with its press. ZOOM is
+// the scope: plain use (with the sniper rifle: scope on/off, held: zoom in).
 static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
 {
   static ULONG ulTouchLast = 0;
@@ -796,7 +800,6 @@ static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
   if (ulTouch&IOSTOUCH_BOMB)       ulActions |= IOS_PLACT_FIREBOMB;
   if (ulTouch&IOSTOUCH_ZOOM)       ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
   if (ulTouch&IOSTOUCH_USE) {
-    ulActions |= IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
     // just pressed
     if (!(ulTouchLast&IOSTOUCH_USE)) {
       const CPlayerSettings *pps = (const CPlayerSettings *)pc.pc_aubAppearance;
@@ -807,6 +810,7 @@ static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
       } else {
         ulActions |= (tmNow<=tmLastUse+tmDoubleClick) ? IOS_PLACT_COMPUTER : IOS_PLACT_USE;
       }
+      ulActions |= IOS_PLACT_USE_NOZOOM;
       tmLastUse = tmNow;
     }
   }
@@ -2756,7 +2760,14 @@ void CGame::GameRedrawView( CDrawPort *pdpDrawPort, ULONG ulFlags)
     }
 
     // create drawport for messages (left on DH)
+#ifdef PLATFORM_IOS
+    // iOS: inside the screen's rounded corners and above the home indicator, as the HUD
+    float afIOSFrame[4];
+    IOSTouch_GetHudFrame(afIOSFrame);
+    CDrawPort dpMsg(pdpDrawPort, afIOSFrame[0], afIOSFrame[1], afIOSFrame[2]-afIOSFrame[0], afIOSFrame[3]-afIOSFrame[1]);
+#else
     CDrawPort dpMsg(pdpDrawPort, TRUE);
+#endif
     if ((ulFlags&GRV_SHOWEXTRAS) && dpMsg.Lock())
     {
       // print pause indicators

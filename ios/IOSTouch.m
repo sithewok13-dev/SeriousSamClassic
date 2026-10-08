@@ -3,9 +3,10 @@
 
    Everything up to the overlay view is plain C: the buttons and their
    layout, the state shared with the game's thread, and what each touch does
-   (the stick, looking, the buttons, the QUICK LOAD and MENU holds, MENU's
-   tray, the FPS count). The view below only hands UIKit's touches to it and
-   shows its state, so the Linux test drives this very code. */
+   (the stick, looking, the buttons, the QUICK SAVE, QUICK LOAD and MENU
+   holds, MENU's tray, the FPS count). The view below only hands UIKit's
+   touches to it and shows its state, so the Linux test drives this very
+   code. */
 
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -36,8 +37,10 @@
 #define IOSTOUCH_IDLE_ALPHA 0.65
 // Edge-to-edge gap between the buttons around FIRE (the arc, ZOOM and BOMB)
 #define IOSTOUCH_CLUSTER_GAP 30.0
-// QUICK LOAD has to be held this long, so a stray tap can't throw away progress
-#define IOSTOUCH_QUICKLOAD_HOLD 1.0
+// QUICK SAVE and QUICK LOAD have to be held this long, so a stray tap can't
+// save over the quicksave (the one QUICK LOAD loads) or throw away progress
+#define IOSTOUCH_QUICKSAVE_HOLD 0.3
+#define IOSTOUCH_QUICKLOAD_HOLD 0.3
 // MENU held this long opens its tray (the keyboard, FPS); a tap opens the
 // menu as it lifts
 #define IOSTOUCH_MENU_HOLD 0.45
@@ -49,6 +52,9 @@
 // A tap too quick for any game tick to see is reported for this many ticks,
 // then released for one
 #define IOSTOUCH_PULSE_READS 2
+// The HUD's frame (IOSTouch_GetHudFrame) keeps its corners this far inside the
+// screen's rounded corners
+#define IOSTOUCH_HUD_CORNER_GAP 2.0
 
 #define IOSTOUCH_MAX_TOUCHES 10
 
@@ -59,7 +65,8 @@ enum {
   KIND_PRESS,    // presses its game button once when the touch lifts on it (BOMB: a look swipe can't waste one)
   KIND_MENU,     // asks for the menu when the touch lifts on it; held IOSTOUCH_MENU_HOLD, opens its tray
   KIND_TAP,      // asks for its request when the touch lifts on it
-  KIND_HOLDLOAD, // asks for a quick load once held IOSTOUCH_QUICKLOAD_HOLD seconds
+  KIND_HOLDSAVE, // asks for a quick save once held IOSTOUCH_QUICKSAVE_HOLD seconds without leaving it
+  KIND_HOLDLOAD, // asks for a quick load once held IOSTOUCH_QUICKLOAD_HOLD seconds without leaving it
   KIND_KEYBOARD, // (MENU's tray) opens or closes the console, when the touch lifts on it
   KIND_FPS,      // (MENU's tray) shows or hides the FPS readout, when the touch lifts on it
 };
@@ -87,10 +94,11 @@ typedef struct {
 // thumb that lands on one while aiming keeps aiming -- except BOMB, which
 // goes off as the finger lifts on it (bombs are few: a look swipe that
 // starts on it mustn't use one up). Top left, below the
-// score: next and previous weapon. Top right: quick save, quick load (hold)
-// and the menu. Holding MENU opens a tray just under it: the keyboard, for
-// the console (cheats), and FPS, which shows or hides a frame rate readout
-// left of QUICK SAVE. RESUME, in the middle, only while the game is paused.
+// score: next and previous weapon. Top right: quick save and quick load
+// (each a short hold) and the menu. Holding MENU opens a tray just
+// under it: the keyboard, for the console (cheats), and FPS, which shows or
+// hides a frame rate readout by QUICK SAVE. RESUME, in the middle, only while
+// the game is paused.
 enum {
   BTN_FIRE, BTN_ZOOM, BTN_CROUCH, BTN_USE, BTN_JUMP, BTN_BOMB,
   BTN_NEXTWPN, BTN_PREVWPN,
@@ -108,7 +116,7 @@ static IOSTouchButton _aButtons[] = {
   [BTN_BOMB]      = { "BOMB",        KIND_PRESS,    IOSTOUCH_BOMB,          30.0, 0, SHOW_PLAY },
   [BTN_NEXTWPN]   = { "NEXT\nWPN",   KIND_HOLD,     IOSTOUCH_NEXTWEAPON,    22.0, 0, SHOW_PLAY },
   [BTN_PREVWPN]   = { "PREV\nWPN",   KIND_HOLD,     IOSTOUCH_PREVWEAPON,    22.0, 0, SHOW_PLAY },
-  [BTN_QUICKSAVE] = { "QUICK\nSAVE", KIND_TAP,      IOSTOUCH_REQ_QUICKSAVE, 22.0, 0, SHOW_PLAY },
+  [BTN_QUICKSAVE] = { "QUICK\nSAVE", KIND_HOLDSAVE, IOSTOUCH_REQ_QUICKSAVE, 22.0, 0, SHOW_PLAY },
   [BTN_QUICKLOAD] = { "QUICK\nLOAD", KIND_HOLDLOAD, IOSTOUCH_REQ_QUICKLOAD, 22.0, 0, SHOW_PLAY },
   [BTN_MENU]      = { "MENU",        KIND_MENU,     IOSTOUCH_REQ_MENU,      22.0, 0, SHOW_ALL },
   [BTN_RESUME]    = { "RESUME",      KIND_TAP,      IOSTOUCH_REQ_RESUME,    44.0, 0, SHOW_PAUSE },
@@ -165,6 +173,33 @@ static void IOSTouch_ResetShared(int bReading)
 
 // ---------------------------------------------------------------- layout
 
+// The HUD, and the game's messages, clock and stats, lay themselves out inside
+// a frame: the screen less its rounded corners and the home indicator
+// (IOSTouch_GetHudFrame). UIKit doesn't give the corners' radius, but a phone's
+// side insets in landscape (notch or Dynamic Island) come to about it or a
+// little more -- 62 pt on the 18 Pro Max for about 62, 59 for 55 on the 14 Pro,
+// 47 for 47.3 on the 12, 44 for 39 on the X -- and so does an iPad's bottom
+// inset (20 for 18). The frame's corners go on the screen corners' arcs at 45
+// degrees, IOSTOUCH_HUD_CORNER_GAP inside (19.6 pt in on the 18 Pro Max), so
+// nothing drawn inside the frame is cut off; its bottom also stays above the
+// home indicator (21 pt). Screens without insets have square corners: the
+// frame is the whole screen. The camera cutout sits at mid-height by a side:
+// the Dynamic Island (side insets 59 pt and up, 126 pt long) is well clear of
+// the HUD, but a notch (side insets 44-50 pt, up to about 210 pt long and 33
+// pt deep) reaches down to the armour box at the bottom left, so there the
+// frame's sides keep 22 pt less than the inset in (the inset is the same on
+// both sides).
+static void IOSTouch_HudFrameInsets(double inLeft, double inTop, double inRight, double inBottom,
+                                    double *pfLeft, double *pfTop, double *pfRight, double *pfBottom)
+{
+  const double R = fmax(fmax(inLeft, inRight), fmax(inTop, inBottom));
+  const double c = (R > IOSTOUCH_HUD_CORNER_GAP) ? R - (R - IOSTOUCH_HUD_CORNER_GAP) / M_SQRT2 : 0.0;
+  const double side = fmax(inLeft, inRight);
+  *pfLeft = *pfRight = (side >= 40.0 && side < 55.0) ? fmax(c, side - 22.0) : c;
+  *pfTop = fmax(inTop, c);
+  *pfBottom = fmax(inBottom, c);
+}
+
 typedef struct {
   int bValid;
   double x0, y0, x1, y1;
@@ -215,8 +250,8 @@ static int IOSTouch_BoxIsClear(double cx, double cy, double hw, double hh, const
 // Places every button on a W x H point screen with these safe-area insets,
 // keeping clear of the HUD's score and high score boxes, ammo row and unread
 // messages box (in points) and of the camera cutout when it may be on the
-// right. FIRE itself may cover the messages box's envelope icon; the count
-// stays clear.
+// right. (The messages box is in the HUD's top row, which only the FPS
+// readout comes near.)
 static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inTop, double inRight, double inBottom,
                                    int bCutoutMayBeRight, const IOSTouchRect *prScore, const IOSTouchRect *prHiScore,
                                    const IOSTouchRect *prAmmo, const IOSTouchRect *prMessages)
@@ -226,8 +261,9 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   const double top = fmax(inTop, 8.0);
   const double bottom = H - fmax(inBottom, 8.0);
 
-  // FIRE in the corner. On screens without a bottom inset (Home-button
-  // iPhones, iPads) the ammo row reaches up to there: FIRE goes above it.
+  // FIRE in the corner. The HUD's ammo row can reach up to there (it keeps
+  // above the home indicator, or a Home-button iPhone has no bottom inset):
+  // FIRE goes above it.
   // Without side insets there is no spare edge for ZOOM to sit in beside
   // FIRE, so FIRE sits further in.
   const double FR = _aButtons[BTN_FIRE].radius;
@@ -261,8 +297,10 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   const double cutHalf = ((inRight >= 55.0) ? 63.0 : 105.0) - cutR;
 
   // ZOOM: up and to the right of FIRE, IOSTOUCH_CLUSTER_GAP from it, as low as
-  // it can sit while staying clear of the ammo row and the messages box, on
-  // screen, clear of JUMP and clear of the cutout.
+  // it can sit while staying clear of the ammo row, on screen, clear of JUMP
+  // and clear of the cutout. Where the cutout takes that side (on a short
+  // screen, where FIRE sits above the ammo row), level with FIRE or a little
+  // below it.
   {
     IOSTouchButton *a = &_aButtons[BTN_ZOOM];
     const IOSTouchButton *j = &_aButtons[BTN_JUMP];
@@ -275,12 +313,12 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
     for (int pass = 0; pass < 2 && !bFound; pass++) {
       const double jumpGap = pass ? 2.0 : 8.0;
       for (int extra = 0; extra <= 80 && !bFound; extra += 2) {
-        for (int deg = 10; deg <= 85; deg++) {
+        for (int i = 0; i <= 105; i++) {
+          const int deg = (i <= 75) ? 10 + i : 85 - i; // 10 up to 85 degrees, then 9 down to -20
           const double rad = deg * M_PI / 180.0;
           const double px = fireX + (D + extra) * cos(rad), py = fireY - (D + extra) * sin(rad);
-          if (px + AR > W - 4 || py - AR < top + 60) continue;                           // on screen, below the top row
+          if (px + AR > W - 4 || py - AR < top + 60 || py + AR > bottom) continue;     // on screen, below the top row
           if (prAmmo->bValid && IOSTouch_DistToRect(px, py, prAmmo) < AR + 4) continue;   // clear of the ammo row
-          if (prMessages->bValid && IOSTouch_DistToRect(px, py, prMessages) < AR + 4) continue; // and the messages
           if (hypot(px - j->x, py - j->y) < AR + j->radius + jumpGap) continue;          // clear of JUMP
           if (bCutout && IOSTouch_DistToSegment(px, py, cutX, H * 0.5 - cutHalf, cutX, H * 0.5 + cutHalf) < AR + cutR + 2)
             continue;                                                                     // clear of the cutout
@@ -302,7 +340,7 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   // BOMB: right of JUMP and above ZOOM, out of the way of aiming -- on the
   // circle IOSTOUCH_CLUSTER_GAP out from JUMP, as far round towards pointing
   // right as it fits on screen, below the top row and clear of ZOOM, USE,
-  // FIRE, the ammo row, the messages box and the cutout. Where the cutout (or, on smaller
+  // FIRE, the ammo row and the cutout. Where the cutout (or, on smaller
   // screens, ZOOM) takes that spot it goes higher, over JUMP; failing that,
   // the gaps shrink.
   {
@@ -335,7 +373,6 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
         if (hypot(px - c->x, py - c->y) < R + c->radius + gap) continue;     // USE
         if (hypot(px - fireX, py - fireY) < R + FR + gap) continue;          // FIRE
         if (prAmmo->bValid && IOSTouch_DistToRect(px, py, prAmmo) < R + 4) continue; // the ammo row
-        if (prMessages->bValid && IOSTouch_DistToRect(px, py, prMessages) < R + 4) continue; // the messages
         if (bCutout && IOSTouch_DistToSegment(px, py, cutX, H * 0.5 - cutHalf, cutX, H * 0.5 + cutHalf) < R + cutR + 2)
           continue;                                                          // the cutout
         bx = px;
@@ -355,7 +392,8 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   _aButtons[BTN_PREVWPN].x = left + 84;
   _aButtons[BTN_NEXTWPN].y = _aButtons[BTN_PREVWPN].y = topLeftY;
   // Top right: QUICK SAVE, QUICK LOAD, MENU in the corner -- spaced well
-  // apart, so a press meant for QUICK LOAD can't land on QUICK SAVE
+  // apart, so a press meant for one of the two quick holds can't land on the
+  // other
   _aButtons[BTN_QUICKSAVE].x = right - 156;
   _aButtons[BTN_QUICKLOAD].x = right - 90;
   _aButtons[BTN_MENU].x = right - 24;
@@ -373,7 +411,7 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
     const int aAvoid[3] = { BTN_BOMB, BTN_ZOOM, BTN_JUMP };
     const double ty = m->y + 52;
     double kx = m->x, bestGap = -1e9;
-    for (double x = m->x; x >= m->x - 160; x -= 4) {
+    for (double x = m->x; x >= m->x - 240; x -= 4) {
       double gap = 1e9;
       for (int i = 0; i < 3; i++) {
         const IOSTouchButton *f = &_aButtons[aAvoid[i]];
@@ -398,12 +436,13 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
 
   // The FPS readout where the keyboard button used to be, left of QUICK SAVE:
   // the game prints its messages at the top left, and its high score box is
-  // in the middle. On a narrow screen, where that spot is on the high score
-  // box, it moves right towards QUICK SAVE; if it never fits there, it goes
-  // below QUICK SAVE (and on to the left), clear of BOMB and ZOOM as well.
+  // in the middle. Where that spot is on the high score box or the unread
+  // messages box right of it (a narrower screen, a larger HUD), it moves right
+  // towards QUICK SAVE; if it never fits there, it goes below QUICK SAVE (and
+  // on to the left), clear of BOMB, ZOOM and MENU's tray as well.
   {
     const IOSTouchButton *q = &_aButtons[BTN_QUICKSAVE];
-    const IOSTouchRect *const apr[4] = { prScore, prHiScore, prAmmo, prMessages };
+    const IOSTouchRect *const apr[5] = { prScore, prHiScore, prAmmo, prMessages, &_rTrayBack };
     const int aAvoid[2] = { BTN_BOMB, BTN_ZOOM };
     const double hw = IOSTOUCH_FPS_W * 0.5, hh = IOSTOUCH_FPS_H * 0.5;
     const double y2 = q->y + q->radius + 8 + hh;
@@ -417,7 +456,7 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
       }
     }
     for (double x = q->x; x >= left + hw && !bFound; x -= 4) {
-      if (IOSTouch_BoxIsClear(x, y2, hw, hh, apr, 4, aAvoid, 2)) {
+      if (IOSTouch_BoxIsClear(x, y2, hw, hh, apr, 5, aAvoid, 2)) {
         _fFpsX = x;
         _fFpsY = y2;
         bFound = 1;
@@ -426,9 +465,13 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   }
 
   // RESUME in the middle of the screen, below the game's "Paused" (centred
-  // at 0.4 of the height)
-  _aButtons[BTN_RESUME].x = (left + right) * 0.5;
-  _aButtons[BTN_RESUME].y = fmax((top + bottom) * 0.5, H * 0.4 + 60.0);
+  // at 0.4 of the height of the HUD's frame)
+  {
+    double fl, ft, fr, fb;
+    IOSTouch_HudFrameInsets(inLeft, inTop, inRight, inBottom, &fl, &ft, &fr, &fb);
+    _aButtons[BTN_RESUME].x = (left + right) * 0.5;
+    _aButtons[BTN_RESUME].y = fmax((top + bottom) * 0.5, ft + (H - ft - fb) * 0.4 + 60.0);
+  }
 }
 
 // A HUD box (fractions of the screen) in points
@@ -464,10 +507,30 @@ static void IOSTouch_KeepRect(IOSTouchRect *prFrac, const float af[4])
   }
 }
 
+// The HUD's frame (fractions of the screen), from the game view's size and
+// safe-area insets once a frame (IOSTouch_UpdateOverlay)
+static float _afHudFrame[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+static void IOSTouch_SetHudFrame(double W, double H, double inLeft, double inTop, double inRight, double inBottom)
+{
+  if (W <= 0.0 || H <= 0.0) return;
+  double fl, ft, fr, fb;
+  IOSTouch_HudFrameInsets(inLeft, inTop, inRight, inBottom, &fl, &ft, &fr, &fb);
+  _afHudFrame[0] = (float)(fl / W);
+  _afHudFrame[1] = (float)(ft / H);
+  _afHudFrame[2] = (float)(1.0 - fr / W);
+  _afHudFrame[3] = (float)(1.0 - fb / H);
+}
+
+void IOSTouch_GetHudFrame(float afFrame[4])
+{
+  memcpy(afFrame, _afHudFrame, sizeof(_afHudFrame));
+}
+
 // ---------------------------------------------------------------- touches
 // Main thread. The overlay view hands each touch to IOSTouch_TouchBegan /
-// Moved / Ended (points, seconds) and calls IOSTouch_TickHolds once a frame;
-// it shows what the state below says.
+// Passed / Moved / Ended (points, seconds) and calls IOSTouch_TickHolds once
+// a frame; it shows what the state below says.
 
 typedef enum {
   ROLE_NONE = 0,
@@ -482,8 +545,10 @@ typedef struct {
   IOSTouchRole role;
   int button;
   double x, y;          // where it is now
-  double tDown;         // when it began (QUICK LOAD: when it was last on the button)
-  int bFired;           // QUICK LOAD: already asked for this touch. MENU: the hold is over (tray opened, or slid off)
+  double tDown;         // when it began
+  int bFired;           // QUICK SAVE, QUICK LOAD: the hold is over (a save or load was asked for, by this finger or
+                        // another one on either button, or it slid off). MENU: the hold is over (tray opened, or
+                        // slid off)
   int trayButton;       // MENU, after its tray opened: the tray button under the finger, or -1
 } IOSTouchSlot;
 
@@ -497,7 +562,9 @@ static int _iRequests = 0;                 // IOSTOUCH_REQ_* not handed out yet
 static IOSTouchHud _hud;                   // the latest HUD state
 static int _bTrayOpen = 0;                 // MENU's tray
 static int _bShowFps = 0;                  // the FPS readout (the view keeps it in the app's settings)
-static float _fLoadRing = 0.0f, _fMenuRing = 0.0f; // how far QUICK LOAD's and MENU's hold rings have filled
+// how far QUICK SAVE's, QUICK LOAD's and MENU's hold rings have filled
+static float _fSaveRing = 0.0f, _fLoadRing = 0.0f, _fMenuRing = 0.0f;
+static double _tLastTick = 0.0;            // when IOSTouch_TickHolds last ran (0: not since the last reset)
 // The FPS readout: frames counted since _ulFpsFrames at _tFpsBase, and the
 // number it shows (-1: none measured yet)
 static int _bFpsBase = 0;
@@ -543,6 +610,12 @@ static int IOSTouch_IsOnButton(double x, double y, int button)
 static int IOSTouch_IsTrayButton(int button)
 {
   return button == BTN_TRAYKEYS || button == BTN_TRAYFPS;
+}
+
+// QUICK SAVE and QUICK LOAD: the holds that end for good when the finger leaves the button
+static int IOSTouch_IsQuickHold(int button)
+{
+  return button == BTN_QUICKSAVE || button == BTN_QUICKLOAD;
 }
 
 static IOSTouchSlot *IOSTouch_FindSlot(const void *touch)
@@ -665,7 +738,7 @@ static void IOSTouch_TouchBegan(const void *touch, double x, double y, double W,
 
 // A finger moved to (x,y). Returns whether the buttons' looks changed (a
 // thumb held on MENU slid onto or off a tray button).
-static int IOSTouch_TouchMoved(const void *touch, double x, double y, double now)
+static int IOSTouch_TouchMoved(const void *touch, double x, double y)
 {
   IOSTouchSlot *s = touch ? IOSTouch_FindSlot(touch) : NULL;
   if (!s) return 0;
@@ -698,14 +771,27 @@ static int IOSTouch_TouchMoved(const void *touch, double x, double y, double now
     }
     os_unfair_lock_unlock(&_lock);
   }
-  // QUICK LOAD only counts while the finger stays on it (IOSTouch_TickHolds
-  // also checks every frame, for a finger that slid off and keeps still)
-  if (s->role == ROLE_BUTTON && s->button == BTN_QUICKLOAD && !IOSTouch_IsOnButton(x, y, BTN_QUICKLOAD)) {
-    s->tDown = now;
+  // QUICK SAVE, QUICK LOAD: a finger that leaves the button, even between two
+  // frames, doesn't save or load, even if it comes back on (IOSTouch_TickHolds
+  // checks too, for a button that moved away from a finger keeping still)
+  if (s->role == ROLE_BUTTON && IOSTouch_IsQuickHold(s->button) && !IOSTouch_IsOnButton(x, y, s->button)) {
+    s->bFired = 1;
   }
   s->x = x;
   s->y = y;
   return bLooksChanged;
+}
+
+// A finger passed (x,y) on its way to where IOSTouch_TouchMoved is told it
+// went next (UIKit merges a finger's moves while the game's frame runs, and
+// keeps the places in between): only QUICK SAVE and QUICK LOAD care, so a
+// slide off one and back on still ends its hold
+static void IOSTouch_TouchPassed(const void *touch, double x, double y)
+{
+  IOSTouchSlot *s = touch ? IOSTouch_FindSlot(touch) : NULL;
+  if (s && s->role == ROLE_BUTTON && IOSTouch_IsQuickHold(s->button) && !IOSTouch_IsOnButton(x, y, s->button)) {
+    s->bFired = 1;
+  }
 }
 
 // A finger lifted at (x,y). bCancelled: iOS took the touch away (a call, a
@@ -744,6 +830,8 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
       const int tb = IOSTouch_ButtonAt(x, y);
       if (IOSTouch_IsTrayButton(tb)) IOSTouch_UseTrayButton(tb);
     }
+    // a lift never saves or loads: only a finished hold does
+    if (s->button == BTN_QUICKSAVE) _fSaveRing = 0.0f;
     if (s->button == BTN_QUICKLOAD) _fLoadRing = 0.0f;
     if (s->button == BTN_MENU) _fMenuRing = 0.0f;
   }
@@ -756,27 +844,45 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
   IOSTouch_SetHeld(IOSTouch_HeldButtons(), ulLifted);
 }
 
-// Once per frame while shown: the QUICK LOAD and MENU holds
+// Once per frame while shown: the QUICK SAVE, QUICK LOAD and MENU holds
 static void IOSTouch_TickHolds(double now)
 {
+  // QUICK SAVE and QUICK LOAD go off only once the finger is known to have
+  // stayed down long enough, so they are timed to the previous tick, not this
+  // one. UIKit hands over touches whenever SDL pumps events: in the frame's
+  // message loop and right after each swap (GfxLibrary.cpp), so every frame
+  // the game draws pumps between two ticks. By now, then, every lift made
+  // before the previous tick has arrived: a finger still down was down from
+  // tDown to then. This costs at most a frame.
+  const double known = _tLastTick;
+  _tLastTick = now;
+  // the furthest along of QUICK SAVE's and of QUICK LOAD's holds (a touch each)
+  float fSaveRing = 0.0f, fLoadRing = 0.0f;
+  int iDone = -1; // the quick hold that completed: BTN_QUICKSAVE or BTN_QUICKLOAD
   for (int i = 0; i < IOSTOUCH_MAX_TOUCHES; i++) {
     IOSTouchSlot *s = &_aSlots[i];
     if (!s->touch || s->role != ROLE_BUTTON || s->bFired) continue;
-    if (s->button == BTN_QUICKLOAD) {
-      if (!IOSTouch_IsOnButton(s->x, s->y, BTN_QUICKLOAD)) {
-        // off it: the hold starts over once the finger is back on it
-        s->tDown = now;
-        _fLoadRing = 0.0f;
+    if (IOSTouch_IsQuickHold(s->button)) {
+      if (!IOSTouch_IsOnButton(s->x, s->y, s->button)) {
+        // off it (a finger that slid off is already done, in
+        // IOSTouch_TouchMoved; this is the button laid out again away from a
+        // finger keeping still): this touch doesn't save or load, even if it
+        // comes back on
+        s->bFired = 1;
         continue;
       }
-      const double progress = (now - s->tDown) / IOSTOUCH_QUICKLOAD_HOLD;
-      if (progress >= 1.0) {
-        s->bFired = 1;
-        _fLoadRing = 0.0f;
-        _iRequests |= IOSTOUCH_REQ_QUICKLOAD;
+      const double hold = (s->button == BTN_QUICKSAVE) ? IOSTOUCH_QUICKSAVE_HOLD : IOSTOUCH_QUICKLOAD_HOLD;
+      if (known - s->tDown >= hold) {
+        // the ring is full, with the finger still on it. QUICK SAVE and QUICK
+        // LOAD both found done in the same tick (one long frame can cover
+        // both, whichever was touched first): QUICK SAVE, as only a load
+        // throws away the game being played
+        if (iDone != BTN_QUICKSAVE) iDone = s->button;
       }
       else {
-        _fLoadRing = (float)progress;
+        const float fRing = (float)fmin((now - s->tDown) / hold, 1.0);
+        if (s->button == BTN_QUICKSAVE) fSaveRing = fmaxf(fSaveRing, fRing);
+        else fLoadRing = fmaxf(fLoadRing, fRing);
       }
     }
     else if (s->button == BTN_MENU) {
@@ -797,6 +903,20 @@ static void IOSTouch_TickHolds(double now)
       }
     }
   }
+  if (iDone >= 0) {
+    // One save or load, once: it ends every hold on QUICK SAVE and QUICK LOAD,
+    // so two fingers on one button ask once, and the two buttons held together
+    // save or load, whichever is found done first, never both (both would only
+    // load back the game just saved, or save again the one just loaded)
+    for (int j = 0; j < IOSTOUCH_MAX_TOUCHES; j++) {
+      IOSTouchSlot *o = &_aSlots[j];
+      if (o->touch && o->role == ROLE_BUTTON && IOSTouch_IsQuickHold(o->button)) o->bFired = 1;
+    }
+    fSaveRing = fLoadRing = 0.0f;
+    _iRequests |= _aButtons[iDone].ulAction;
+  }
+  _fSaveRing = fSaveRing;
+  _fLoadRing = fLoadRing;
 }
 
 // Once per frame while shown: the FPS readout counts the frames the game
@@ -828,7 +948,8 @@ static void IOSTouch_ResetTouches(int bReading)
   _bStickActive = 0;
   _fStickX = _fStickY = 0.0f;
   _iRequests = 0;
-  _fLoadRing = _fMenuRing = 0.0f;
+  _fSaveRing = _fLoadRing = _fMenuRing = 0.0f;
+  _tLastTick = 0.0;
   _bFpsBase = 0;
   IOSTouch_ResetShared(bReading);
 }
@@ -860,7 +981,8 @@ static int IOSTouch_CutoutMayBeRight(UIView *v)
   UIView *stickBase;
   UIView *stickKnob;
   UILabel *aButtonViews[IOSTOUCH_NUM_BUTTONS];
-  CAShapeLayer *loadRing; // QUICK LOAD's hold progress
+  CAShapeLayer *saveRing; // QUICK SAVE's hold progress
+  CAShapeLayer *loadRing; // QUICK LOAD's
   CAShapeLayer *menuRing; // MENU's
   UIView *trayBack;       // behind MENU's tray
   UILabel *fpsLabel;      // the FPS readout...
@@ -937,7 +1059,10 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
       [self addSubview:l];
     }
 
-    // Rings that fill while QUICK LOAD and MENU are held
+    // Rings that fill while QUICK SAVE, QUICK LOAD and MENU are held. QUICK
+    // SAVE's and QUICK LOAD's look the same, and fill as quickly.
+    saveRing = IOSTouch_MakeHoldRing(_aButtons[BTN_QUICKSAVE].radius);
+    [aButtonViews[BTN_QUICKSAVE].layer addSublayer:saveRing];
     loadRing = IOSTouch_MakeHoldRing(_aButtons[BTN_QUICKLOAD].radius);
     [aButtonViews[BTN_QUICKLOAD].layer addSublayer:loadRing];
     menuRing = IOSTouch_MakeHoldRing(_aButtons[BTN_MENU].radius);
@@ -1084,6 +1209,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
 {
   [self refreshButtonLooks];
   [self refreshStick];
+  [self setRing:saveRing progress:_fSaveRing];
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
 }
@@ -1103,11 +1229,15 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
 
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
 {
-  const double now = CACurrentMediaTime();
   int bLooksChanged = 0;
   for (UITouch *t in touches) {
+    // the places UIKit merged into this move (the last one is t's own)
+    for (UITouch *c in [event coalescedTouchesForTouch:t]) {
+      CGPoint q = [c locationInView:self];
+      IOSTouch_TouchPassed((__bridge const void *)t, q.x, q.y);
+    }
     CGPoint p = [t locationInView:self];
-    if (IOSTouch_TouchMoved((__bridge const void *)t, p.x, p.y, now)) bLooksChanged = 1;
+    if (IOSTouch_TouchMoved((__bridge const void *)t, p.x, p.y)) bLooksChanged = 1;
   }
   if (bLooksChanged) [self refreshButtonLooks];
   [self refreshStick];
@@ -1125,8 +1255,8 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self endTouches:touches cancelled:0]; }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self endTouches:touches cancelled:1]; }
 
-// Once per frame while shown: the QUICK LOAD and MENU holds, the context
-// buttons and the FPS readout
+// Once per frame while shown: the QUICK SAVE, QUICK LOAD and MENU holds, the
+// context buttons and the FPS readout
 - (void)tick
 {
   const double now = CACurrentMediaTime();
@@ -1134,6 +1264,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   const int iFpsWas = _iFpsShown;
   IOSTouch_TickHolds(now);
   IOSTouch_CountFrames(_ulFramesDrawn, now);
+  [self setRing:saveRing progress:_fSaveRing];
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
 
@@ -1237,6 +1368,12 @@ static int IOSTouch_UpdateOverlay(void *pSDLWindow, int iMode, const IOSTouchHud
   }
 
   UIView *host = IOSTouch_GetHostView((SDL_Window *)pSDLWindow);
+  // the HUD's frame, from the game's view: also while the overlay hides (the
+  // HUD shows in demos too) and before it exists
+  if (host) {
+    const UIEdgeInsets in = host.safeAreaInsets;
+    IOSTouch_SetHudFrame(host.bounds.size.width, host.bounds.size.height, in.left, in.top, in.right, in.bottom);
+  }
   if (!_pOverlay) {
     if (iMode == IOSTOUCH_HIDDEN || !host) {
       _iMode = IOSTOUCH_HIDDEN;

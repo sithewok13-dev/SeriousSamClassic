@@ -2561,6 +2561,15 @@ void MenuGoToParent(void)
 
 void MenuOnKeyDown( int iVKey)
 {
+#ifdef PLATFORM_IOS
+  // no keyboard shows in the menus: while a field is being typed into (a
+  // player's name, a save's description), a tap on it finishes it, as Enter
+  // would, and a tap anywhere else leaves it as it was, as Escape would
+  // (MenuOnTouchDown has found what is under the finger)
+  if (_bEditingString && iVKey==VK_LBUTTON) {
+    iVKey = (_pmgUnderCursor!=NULL && _pmgUnderCursor->mg_bFocused) ? VK_RETURN : VK_ESCAPE;
+  }
+#endif
 
   // check if mouse buttons used
   _bMouseUsedLast = (iVKey==VK_LBUTTON || iVKey==VK_RBUTTON || iVKey==VK_MBUTTON 
@@ -2672,6 +2681,62 @@ void MenuUpdateMouseFocus(void)
     }
   }
 }
+
+#ifdef PLATFORM_IOS
+// A finger lands on the menu: SDL moves the pointer there and presses the
+// button together, before the next frame works out which gadget is under the
+// pointer (DoMenu) -- so find and focus it now, or the press goes to the
+// gadget the previous touch left focused (or is dropped). For a mouse, which
+// has hovered there already, this changes nothing. pixI, pixJ: where the
+// press is, from its message (SDL's pointer may be at a later touch by now).
+void MenuOnTouchDown(PIX pixI, PIX pixJ)
+{
+  extern CDrawPort *pdp;
+  if (pgmCurrentMenu==NULL || pdp==NULL) return;
+  POINT pt;
+  pt.x = pixI;
+  pt.y = pixJ;
+  extern INDEX sam_bWideScreen;
+  if (sam_bWideScreen) {
+    const PIX pixHeight = pdp->GetHeight();
+    pt.y -= (LONG) ((pixHeight/0.75f-pixHeight)/2);
+  }
+  // the gadget under it, as DoMenu finds it (the last visible one that contains it)
+  _pmgUnderCursor = NULL;
+  FOREACHINLIST( CMenuGadget, mg_lnNode, pgmCurrentMenu->gm_lhGadgets, itmg) {
+    if (itmg->mg_bVisible && FloatBoxToPixBox(pdp, itmg->mg_boxOnScreen)>=PIX2D(pt.x, pt.y)) {
+      _pmgUnderCursor = itmg;
+    }
+  }
+  // the focus to that gadget, as the next frame would, and the cursor there
+  // for the press (sliders read it). MenuUpdateMouseFocus moves the cursor to
+  // SDL's pointer, which is somewhere else only while a later touch waits in
+  // the queue: the next frame goes there, as after a mouse move.
+  _pixCursorPosI = _pixCursorExternPosI = pt.x;
+  _pixCursorPosJ = _pixCursorExternPosJ = pt.y;
+  _bMouseUsedLast = !_bEditingString && !_bDefiningKey;
+  MenuUpdateMouseFocus();
+  _pixCursorPosI = _pixCursorExternPosI = pt.x;
+  _pixCursorPosJ = _pixCursorExternPosJ = pt.y;
+}
+
+// The app goes to the background, where iOS may end it without a word.
+// Options > Controls and an axis's settings keep what is set in them until
+// they are left: save it now, as leaving them would. The menu stays up as it
+// was.
+void MenuKeepSettings(void)
+{
+  if (!bMenuActive) return;
+  if (pgmCurrentMenu==&gmControls) {
+    gmControls.ApplyActionSettings();
+    ControlsMenuOff();
+    ControlsMenuOn();
+  } else if (pgmCurrentMenu==&gmCustomizeAxisMenu) {
+    gmCustomizeAxisMenu.ApplyActionSettings();  // (and saved: ControlsMenuOff)
+    gmCustomizeAxisMenu.ObtainActionSettings(); // (ControlsMenuOn)
+  }
+}
+#endif
 
 static CTimerValue _tvInitialization;
 static TIME _tmInitializationTick = -1;
