@@ -522,6 +522,61 @@ FLOAT CControls::GetAxisValue(INDEX iAxis)
   return fReading*aa.aa_fAxisInfluence;
 }
 
+#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+// The player's button bits, as in Player.es (PLACT_*; they are not in a
+// header). The First Encounter has no sniper rifle or serious bomb, and uses
+// bits 9-13 to select weapons.
+#define IOS_PLACT_FIRE        (1L<<0)
+#define IOS_PLACT_WEAPON_NEXT (1L<<2)
+#define IOS_PLACT_WEAPON_PREV (1L<<3)
+#define IOS_PLACT_USE         (1L<<5)
+#define IOS_PLACT_COMPUTER    (1L<<6)
+#ifdef FIRST_ENCOUNTER
+#define IOS_PLACT_USE_HELD    0
+#define IOS_PLACT_SNIPER_USE  0
+#define IOS_PLACT_FIREBOMB    0
+#else
+#define IOS_PLACT_USE_HELD    (1L<<9)
+#define IOS_PLACT_SNIPER_USE  (1L<<12)
+#define IOS_PLACT_FIREBOMB    (1L<<13)
+#endif
+
+// The touch controls' buttons as the player's button bits for this tick.
+// USE works like the default Use key (ctl_bUseOrComputer): use, and tapped
+// again within ctl_tmComputerDoubleClick NETRICSA -- or both at once, if the
+// player's settings say NETRICSA opens on a single click. ZOOM is plain use
+// (with the sniper rifle: scope on/off, held: zoom in).
+static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
+{
+  static ULONG ulTouchLast = 0;
+  static TIME tmLastUse = -100.0;
+  ULONG ulActions = 0;
+  if (ulTouch&IOSTOUCH_FIRE)       ulActions |= IOS_PLACT_FIRE;
+  if (ulTouch&IOSTOUCH_NEXTWEAPON) ulActions |= IOS_PLACT_WEAPON_NEXT;
+  if (ulTouch&IOSTOUCH_PREVWEAPON) ulActions |= IOS_PLACT_WEAPON_PREV;
+  if (ulTouch&IOSTOUCH_BOMB)       ulActions |= IOS_PLACT_FIREBOMB;
+  if (ulTouch&IOSTOUCH_ZOOM)       ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
+  if (ulTouch&IOSTOUCH_USE) {
+    ulActions |= IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
+    // just pressed
+    if (!(ulTouchLast&IOSTOUCH_USE)) {
+      const CPlayerSettings *pps = (const CPlayerSettings *)pc.pc_aubAppearance;
+      const FLOAT tmDoubleClick = _pShell->GetFLOAT("ctl_tmComputerDoubleClick");
+      const TIME tmNow = _pTimer->GetRealTimeTick();
+      if (tmDoubleClick==0 || (pps->ps_ulFlags&PSF_COMPSINGLECLICK)) {
+        ulActions |= IOS_PLACT_USE|IOS_PLACT_COMPUTER;
+      } else {
+        ulActions |= (tmNow<=tmLastUse+tmDoubleClick) ? IOS_PLACT_COMPUTER : IOS_PLACT_USE;
+      }
+      tmLastUse = tmNow;
+    }
+  }
+  ulTouchLast = ulTouch;
+  return ulActions;
+}
+#endif
+
 void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction, BOOL bPreScan)
 {
   // set axis-controlled moving
@@ -537,6 +592,20 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
   paAction.pa_aViewRotation(2) = (ANGLE)GetAxisValue( AXIS_LOOK_UD);
   paAction.pa_aViewRotation(3) = (ANGLE)GetAxisValue( AXIS_LOOK_BK);
 
+#ifdef PLATFORM_IOS
+  // touch controls (first local player): the move stick as movement axes,
+  // JUMP and CROUCH as up and down -- before the player's speeds apply
+  IOSTouchInput tiTouch;
+  memset(&tiTouch, 0, sizeof(tiTouch));
+  if (!bPreScan && ctl_iCurrentPlayerLocal==0) {
+    IOSTouch_ReadInput(&tiTouch);
+    paAction.pa_vTranslation(1) += tiTouch.fMoveX;
+    paAction.pa_vTranslation(3) -= tiTouch.fMoveY;
+    if (tiTouch.ulButtons&IOSTOUCH_JUMP)   paAction.pa_vTranslation(2) += 1.0f;
+    if (tiTouch.ulButtons&IOSTOUCH_CROUCH) paAction.pa_vTranslation(2) -= 1.0f;
+  }
+#endif
+
   // execute all button-action shell commands
   if (!bPreScan) {
     DoButtonActions();
@@ -545,6 +614,12 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
 
   // make the player class create the action packet
   ctl_ComposeActionPacket(pc, paAction, bPreScan);
+#ifdef PLATFORM_IOS
+  // and its buttons, whatever keys are bound
+  if (!bPreScan && ctl_iCurrentPlayerLocal==0) {
+    paAction.pa_ulButtons |= IOS_TouchButtonActions(pc, tiTouch.ulButtons);
+  }
+#endif
 }
 
 CButtonAction &CControls::AddButtonAction(void)

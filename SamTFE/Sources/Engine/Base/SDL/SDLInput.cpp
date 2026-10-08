@@ -30,6 +30,10 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <Engine/Base/Shell.h>
 #include <Engine/Base/ErrorReporting.h>
 
+#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+#endif
+
 extern INDEX inp_iKeyboardReadingMethod;
 extern FLOAT inp_fMouseSensitivity;
 extern INDEX inp_bAllowMouseAcceleration;
@@ -54,6 +58,10 @@ static BOOL inp_bSDLPermitCtrlG = TRUE;
 static BOOL inp_bSDLGrabInput = TRUE;
 static Sint16 mouse_relative_x = 0;
 static Sint16 mouse_relative_y = 0;
+#ifdef PLATFORM_IOS
+// mouse movement for looking, from a real mouse or trackpad only
+static SDL_atomic_t _iIOSMouseDX, _iIOSMouseDY;
+#endif
 
 INDEX inp_iMButton4Dn = 0x20040;
 INDEX inp_iMButton4Up = 0x20000;
@@ -326,12 +334,20 @@ static void sdl_event_handler(const SDL_Event *event)
     switch (event->type)
     {
         case SDL_MOUSEMOTION:
+#ifdef PLATFORM_IOS
+            if (event->motion.which == SDL_TOUCH_MOUSEID) break;  // a touch: no mouse look
+            SDL_AtomicAdd(&_iIOSMouseDX, event->motion.xrel);
+            SDL_AtomicAdd(&_iIOSMouseDY, event->motion.yrel);
+#endif
             mouse_relative_x += event->motion.xrel;
             mouse_relative_y += event->motion.yrel;
             break;
 
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP:
+#ifdef PLATFORM_IOS
+            if (event->button.which == SDL_TOUCH_MOUSEID) break;  // a touch: a menu click, not a mouse button
+#endif
             if (event->button.button <= 5) {
               int button = KID_MOUSE1;
               switch(event->button.button) {
@@ -708,6 +724,10 @@ void CInput::ClearRelativeMouseMotion(void)
     #if USE_MOUSEWARP
     SDL_GetRelativeMouseState(NULL, NULL);
     #endif
+#ifdef PLATFORM_IOS
+    SDL_AtomicSet(&_iIOSMouseDX, 0);
+    SDL_AtomicSet(&_iIOSMouseDY, 0);
+#endif
     mouse_relative_x = mouse_relative_y = 0;
 }
 
@@ -772,6 +792,10 @@ void CInput::GetInput(BOOL bPreScan)
   #ifdef USE_MOUSEWARP
   int iMx, iMy;
   SDL_GetRelativeMouseState(&iMx, &iMy);
+#ifdef PLATFORM_IOS
+  iMx = SDL_AtomicSet(&_iIOSMouseDX, 0);
+  iMy = SDL_AtomicSet(&_iIOSMouseDY, 0);
+#endif
   mouse_relative_x = iMx;
   mouse_relative_y = iMy;
   #else
@@ -780,6 +804,15 @@ void CInput::GetInput(BOOL bPreScan)
   {
     FLOAT fDX = FLOAT( mouse_relative_x );
     FLOAT fDY = FLOAT( mouse_relative_y );
+#ifdef PLATFORM_IOS
+    // the touch controls' drag-to-look, as more mouse movement
+    {
+      float fTouchDX = 0.0f, fTouchDY = 0.0f;
+      IOSTouch_TakeLook(&fTouchDX, &fTouchDY);
+      fDX += fTouchDX;
+      fDY += fTouchDY;
+    }
+#endif
 
     mouse_relative_x = mouse_relative_y = 0;
 

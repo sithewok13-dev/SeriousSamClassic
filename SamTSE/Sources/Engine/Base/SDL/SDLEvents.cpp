@@ -41,6 +41,17 @@ BOOL PeekMessage(MSG *msg, void *hwnd, UINT wMsgFilterMin,
     ASSERT(wMsgFilterMin == 0);
     ASSERT(wMsgFilterMax == 0);
 
+#ifdef PLATFORM_IOS
+    // the rest of a text event that brought several characters at once
+    static char strTextLeft[SDL_TEXTINPUTEVENT_TEXT_SIZE] = "";
+    static int iTextLeft = 0;
+    if (strTextLeft[iTextLeft] != 0) {
+        SDL_zerop(msg);
+        msg->message = SDL_TEXTINPUT;
+        msg->wParam = strTextLeft[iTextLeft++];
+        return TRUE;
+    }
+#endif
     SDL_Event sdlevent;
     while (SE_SDL_InputEventPoll(&sdlevent))
     {
@@ -75,6 +86,12 @@ BOOL PeekMessage(MSG *msg, void *hwnd, UINT wMsgFilterMin,
 
             case SDL_TEXTINPUT:
                 msg->wParam = sdlevent.text.text[0];  // !!! FIXME: dropping characters!
+#ifdef PLATFORM_IOS
+                if (sdlevent.text.text[0] != 0) {
+                    SDL_strlcpy(strTextLeft, sdlevent.text.text + 1, sizeof(strTextLeft));
+                    iTextLeft = 0;
+                }
+#endif
                 return TRUE;
 
             case SDL_MOUSEWHEEL:

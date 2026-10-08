@@ -23,6 +23,15 @@ endif()
 
 target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSSupport.c)
 target_include_directories(${SE_EXE} PRIVATE ${SDL2_INCLUDE_DIR})
+
+# Touch controls: a UIKit overlay in Objective-C (ARC), and IOSTouch.h for the
+# hooks in the engine, game and HUD (see patch_engine.py)
+enable_language(OBJC)
+target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSTouch.m)
+set_source_files_properties(${SE_IOS_DIR}/IOSTouch.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-fno-ms-extensions")
+foreach(_target ${ENGINELIB} ${GAMEMPLIB} ${ENTITIESMPLIB} ${SE_EXE})
+  target_include_directories(${_target} PRIVATE ${SE_IOS_DIR})
+endforeach()
 target_include_directories(${ENGINELIB} PRIVATE ${GL4ES_ROOT}/include)
 
 set_target_properties(${SE_EXE} PROPERTIES

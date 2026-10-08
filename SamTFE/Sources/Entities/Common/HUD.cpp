@@ -414,6 +414,46 @@ extern INDEX SetAllPlayersStats( INDEX iSortKey)
 
 // ----------------------- drawing functions
 
+#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+// What the touch controls need to know (IOS_GetHudState): where the score
+// and high score boxes, the ammo row and the unread messages box are, so
+// they keep their buttons clear of them, and what the player holds. Boxes
+// are gathered as HUD_DrawBorder draws them, in fractions of the screen.
+enum { IOS_HUD_NONE = 0, IOS_HUD_SCORE, IOS_HUD_HISCORE, IOS_HUD_AMMO, IOS_HUD_MESSAGES };
+static INDEX _iIOSHudPart = IOS_HUD_NONE; // what the borders drawn now belong to
+static BOOL _bIOSHudMeasureOnly = FALSE;  // only measure the border, don't draw it
+static IOSTouchHud _hudIOS;               // being gathered
+static IOSTouchHud _hudIOSDone;           // the last complete one...
+static DOUBLE _tmIOSHudDone = -100.0;     // ...and when it was drawn
+
+static void IOS_HudAddBorder(FLOAT fLeft, FLOAT fUp, FLOAT fRight, FLOAT fDown)
+{
+  if (_iIOSHudPart==IOS_HUD_NONE) return;
+  float *af = (_iIOSHudPart==IOS_HUD_SCORE) ? _hudIOS.afScore
+            : (_iIOSHudPart==IOS_HUD_HISCORE) ? _hudIOS.afHiScore
+            : (_iIOSHudPart==IOS_HUD_AMMO) ? _hudIOS.afAmmo : _hudIOS.afMessages;
+  const FLOAT fW = _pDP->dp_Raster->ra_Width;
+  const FLOAT fH = _pDP->dp_Raster->ra_Height;
+  const float afBox[4] = { (_pDP->dp_MinI+fLeft)/fW,  (_pDP->dp_MinJ+fUp)/fH,
+                           (_pDP->dp_MinI+fRight)/fW, (_pDP->dp_MinJ+fDown)/fH };
+  if (af[2]<=af[0]) {
+    memcpy(af, afBox, sizeof(afBox));
+  } else {
+    af[0] = Min(af[0], afBox[0]);
+    af[1] = Min(af[1], afBox[1]);
+    af[2] = Max(af[2], afBox[2]);
+    af[3] = Max(af[3], afBox[3]);
+  }
+}
+
+extern "C" void IOS_GetHudState(IOSTouchHud *pHud)
+{
+  *pHud = _hudIOSDone;
+  pHud->bValid = (_pTimer->GetHighPrecisionTimer().GetSeconds()-_tmIOSHudDone < 0.5);
+}
+#endif
+
 // draw border with filter
 static void HUD_DrawBorder( FLOAT fCenterX, FLOAT fCenterY, FLOAT fSizeX, FLOAT fSizeY, COLOR colTiles)
 {
@@ -428,6 +468,10 @@ static void HUD_DrawBorder( FLOAT fCenterX, FLOAT fCenterY, FLOAT fSizeX, FLOAT 
   const FLOAT fRight = fCenterI  + fSizeI/2 +1; 
   const FLOAT fUp    = fCenterJ  - fSizeJ/2 -1; 
   const FLOAT fDown  = fCenterJ  + fSizeJ/2 +1;
+#ifdef PLATFORM_IOS
+  IOS_HudAddBorder(fLeft, fUp, fRight, fDown);
+  if (_bIOSHudMeasureOnly) return;
+#endif
   const FLOAT fLeftEnd  = fLeft  + fTileSize;
   const FLOAT fRightBeg = fRight - fTileSize; 
   const FLOAT fUpEnd    = fUp    + fTileSize; 
@@ -589,6 +633,9 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
   hud_fScaling = Clamp( hud_fScaling, 0.5f, 1.2f);
   _penPlayer  = penPlayerCurrent;
   _penWeapons = (CPlayerWeapons*)&*_penPlayer->m_penWeapons;
+#ifdef PLATFORM_IOS
+  memset(&_hudIOS, 0, sizeof(_hudIOS));
+#endif
   _pDP        = pdpCurrent;
   _pixDPWidth   = _pDP->GetWidth();
   _pixDPHeight  = _pDP->GetHeight();
@@ -771,6 +818,21 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
   fCol = pixRightBound -fHalfUnitS;
   const FLOAT fBarPos = fHalfUnitS*0.7f;
   FillWeaponAmmoTables();
+#ifdef PLATFORM_IOS
+  // the ammo row at its widest, whatever the player has now, so the touch
+  // controls don't move about as ammo is picked up
+  {
+    const FLOAT fScalingAdjustment = _fCustomScalingAdjustment;
+    if (!hud_bLegacyHUD) {_fCustomScalingAdjustment = 0.7f;}
+    _iIOSHudPart = IOS_HUD_AMMO;
+    _bIOSHudMeasureOnly = TRUE;
+    HUD_DrawBorder( fCol,             fRow, fOneUnitS, fOneUnitS, colBorder);
+    HUD_DrawBorder( fCol-7*fAdvUnitS, fRow, fOneUnitS, fOneUnitS, colBorder);
+    _bIOSHudMeasureOnly = FALSE;
+    _iIOSHudPart = IOS_HUD_NONE;
+    _fCustomScalingAdjustment = fScalingAdjustment;
+  }
+#endif
 
   // loop thru all ammo types
   if (!GetSP()->sp_bInfiniteAmmo) {
@@ -1099,6 +1161,9 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
   }
 
   if( hud_bShowScore ) {
+#ifdef PLATFORM_IOS
+    _iIOSHudPart = IOS_HUD_SCORE;
+#endif
     // prepare and draw score or frags info 
     strValue.PrintF( "%d", iScore);
     fRow = pixTopBound  +fHalfUnit;
@@ -1110,6 +1175,9 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
     HUD_DrawIcon(   fCol,      fRow, _toFrags, colScore, 1.0f, FALSE);
   }
 
+#ifdef PLATFORM_IOS
+  _iIOSHudPart = IOS_HUD_NONE;
+#endif
   // eventually draw mana info 
   if( bScoreMatch || bFragMatch) {
     strValue.PrintF( "%d", iMana);
@@ -1125,6 +1193,9 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
   // if single player or cooperative mode
   if( (bSinglePlay || bCooperative) && hud_bShowScore)
   {
+#ifdef PLATFORM_IOS
+    _iIOSHudPart = IOS_HUD_HISCORE;
+#endif
     // prepare and draw hiscore info 
     strValue.PrintF( "%d", Max(_penPlayer->m_iHighScore, _penPlayer->m_psGameStats.ps_iScore));
     BOOL bBeating = _penPlayer->m_psGameStats.ps_iScore>_penPlayer->m_iHighScore;
@@ -1136,6 +1207,20 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
     HUD_DrawText(   fCol+fAdv, fRow, strValue, NONE, bBeating ? 0.0f : 1.0f);
     HUD_DrawIcon(   fCol,      fRow, _toHiScore, _colHUD, 1.0f, FALSE);
 
+#ifdef PLATFORM_IOS
+    {
+      const FLOAT fRowM = hud_bLegacyHUD ? pixTopBound+fHalfUnit
+                        : pixBottomBound-(fNextUnit+fHalfUnit)*_fArmorHeightAdjuster-21.0f;
+      const FLOAT fColM = pixRightBound-fHalfUnit-fAdvUnit-fChrUnit*4;
+      const FLOAT fAdvM = fAdvUnit+fChrUnit*4/2-fHalfUnit;
+      _iIOSHudPart = IOS_HUD_MESSAGES;
+      _bIOSHudMeasureOnly = TRUE;
+      HUD_DrawBorder( fColM,       fRowM, fOneUnit,   fOneUnit, colBorder);
+      HUD_DrawBorder( fColM+fAdvM, fRowM, fChrUnit*4, fOneUnit, colBorder);
+      _bIOSHudMeasureOnly = FALSE;
+      _iIOSHudPart = IOS_HUD_NONE;
+    }
+#endif
     // prepare and draw unread messages
     if( hud_bShowMessages && _penPlayer->m_ctUnreadMessages>0) {
       strValue.PrintF( "%d", _penPlayer->m_ctUnreadMessages);
@@ -1175,6 +1260,13 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
       HUD_DrawIcon(   fCol,      fRow, _toMessage, col, 0.0f, TRUE);
     }
   }
+
+#ifdef PLATFORM_IOS
+  // done: for the touch controls
+  // (no sniper rifle or serious bombs in the First Encounter)
+  _hudIOSDone = _hudIOS;
+  _tmIOSHudDone = _pTimer->GetHighPrecisionTimer().GetSeconds();
+#endif
 
   // draw cheat modes
   if( GetSP()->sp_ctMaxPlayers==1) {
