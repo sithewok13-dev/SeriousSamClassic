@@ -23,13 +23,14 @@
 #define IOSTOUCH_LOOK_SCALE_Y 1.56f
 // Stick: radius in points; it appears wherever the left thumb lands in the
 // left IOSTOUCH_STICK_ZONE of the screen, and only while that thumb is down.
-// Pushed past IOSTOUCH_STICK_DEADZONE of the radius it starts moving, at
+// Pushed past IOSTOUCH_STICK_DEADZONE of the radius it starts moving, and by
 // IOSTOUCH_STICK_FULL it moves at full speed (below about half speed the
-// player walks, and won't step off ledges).
+// player walks, and won't step off ledges). Full speed comes early because
+// Sam is played running, as with the keyboard on PC.
 #define IOSTOUCH_STICK_ZONE 0.42f
 #define IOSTOUCH_STICK_RADIUS 60.0f
 #define IOSTOUCH_STICK_DEADZONE 0.15f
-#define IOSTOUCH_STICK_FULL 0.70f
+#define IOSTOUCH_STICK_FULL 0.30f
 // Buttons show at this opacity while untouched, so they hide less of the game;
 // a touched one shows at full strength
 #define IOSTOUCH_IDLE_ALPHA 0.65
