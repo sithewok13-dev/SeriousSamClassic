@@ -352,7 +352,10 @@ inline SLONG FloatToInt( FLOAT f)
 #else
   // round to nearest by adding/subtracting 0.5 (depending on f pos/neg) before converting to SLONG
   float addToRound = copysignf(0.5f, f); // copy f's signbit to 0.5 => if f<0 then addToRound = -0.5, else 0.5
-  return((SLONG) (f + addToRound));
+  const float fRounded = f + addToRound;
+  // out of range (and NaN): INT_MIN, as x86's fistp gives; arm64 would saturate
+  if (!(fRounded > -2147483648.0f && fRounded < 2147483648.0f)) return (SLONG)0x80000000;
+  return((SLONG) fRounded);
 
 #endif
 }

@@ -310,6 +310,9 @@ Rect ExtractPolygonsInBox(CTerrain *ptrTerrain, const FLOATaabbox3D &bboxExtract
   _aiExtIndices.PopAll();
   _aiExtColors.PopAll();
 
+  // Float to int as on x86: out of range (and inf/NaN) gives INT_MIN, which
+  // the clamps turn into 0
+  #define TerrainCoord(d) ((((double)(d)) > -2147483648.0 && ((double)(d)) < 2147483648.0) ? (INDEX)(d) : (INDEX)0x80000000)
   Rect rc;
   if(!bFixSize) {
     // max vector of bbox in incremented for one, because first vertex is at 0,0,0 in world and in heightmap is at 1,1
@@ -319,28 +322,28 @@ Rect ExtractPolygonsInBox(CTerrain *ptrTerrain, const FLOATaabbox3D &bboxExtract
 #else
   #define Isinf isinff
 #endif
-    rc.rc_iLeft   = (Isinf(bbox.minvect(1)))?(INDEX)0:Clamp((INDEX)(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iTop    = (Isinf(bbox.minvect(3)))?(INDEX)0:Clamp((INDEX)(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
-    rc.rc_iRight  = (Isinf(bbox.maxvect(1)))?(INDEX)0:Clamp((INDEX)ceil(bbox.maxvect(1)+1),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iBottom = (Isinf(bbox.maxvect(3)))?(INDEX)0:Clamp((INDEX)ceil(bbox.maxvect(3)+1),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iLeft   = (Isinf(bbox.minvect(1)))?(INDEX)0:Clamp(TerrainCoord(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iTop    = (Isinf(bbox.minvect(3)))?(INDEX)0:Clamp(TerrainCoord(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iRight  = (Isinf(bbox.maxvect(1)))?(INDEX)0:Clamp(TerrainCoord(ceil(bbox.maxvect(1)+1)),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iBottom = (Isinf(bbox.maxvect(3)))?(INDEX)0:Clamp(TerrainCoord(ceil(bbox.maxvect(3)+1)),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
 #else
-    rc.rc_iLeft   = Clamp((INDEX)(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iTop    = Clamp((INDEX)(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
-    rc.rc_iRight  = Clamp((INDEX)ceil(bbox.maxvect(1)+1),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iBottom = Clamp((INDEX)ceil(bbox.maxvect(3)+1),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iLeft   = Clamp(TerrainCoord(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iTop    = Clamp(TerrainCoord(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iRight  = Clamp(TerrainCoord(ceil(bbox.maxvect(1)+1)),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iBottom = Clamp(TerrainCoord(ceil(bbox.maxvect(3)+1)),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
 #endif
   } else {
     // max vector of bbox in incremented for one, because first vertex is at 0,0,0 in world and in heightmap is at 1,1
 #ifdef __arm__
-    rc.rc_iLeft   = (Isinf(bbox.minvect(1)))?(INDEX)0:Clamp((INDEX)(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iTop    = (Isinf(bbox.minvect(3)))?(INDEX)0:Clamp((INDEX)(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
-    rc.rc_iRight  = (Isinf(bbox.maxvect(1)))?(INDEX)0:Clamp((INDEX)(bbox.maxvect(1)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iBottom = (Isinf(bbox.maxvect(3)))?(INDEX)0:Clamp((INDEX)(bbox.maxvect(3)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iLeft   = (Isinf(bbox.minvect(1)))?(INDEX)0:Clamp(TerrainCoord(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iTop    = (Isinf(bbox.minvect(3)))?(INDEX)0:Clamp(TerrainCoord(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iRight  = (Isinf(bbox.maxvect(1)))?(INDEX)0:Clamp(TerrainCoord(bbox.maxvect(1)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iBottom = (Isinf(bbox.maxvect(3)))?(INDEX)0:Clamp(TerrainCoord(bbox.maxvect(3)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
 #else
-    rc.rc_iLeft   = Clamp((INDEX)(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iTop    = Clamp((INDEX)(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
-    rc.rc_iRight  = Clamp((INDEX)(bbox.maxvect(1)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
-    rc.rc_iBottom = Clamp((INDEX)(bbox.maxvect(3)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iLeft   = Clamp(TerrainCoord(bbox.minvect(1)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iTop    = Clamp(TerrainCoord(bbox.minvect(3)-0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
+    rc.rc_iRight  = Clamp(TerrainCoord(bbox.maxvect(1)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapWidth);
+    rc.rc_iBottom = Clamp(TerrainCoord(bbox.maxvect(3)+0),(INDEX)0,ptrTerrain->tr_pixHeightMapHeight);
 #endif
   }
 

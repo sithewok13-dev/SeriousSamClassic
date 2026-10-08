@@ -1727,13 +1727,13 @@ void Particles_Rain(CEntity *pen, FLOAT fGridSize, INDEX ctGrids, FLOAT fFactor,
   //INDEX ctDiscarded=0;
   for( INDEX iZ=0; iZ<ctGrids; iZ++)
   {
-    INDEX iRndZ = (ULONG(vPos(3)+iZ)) % CT_MAX_PARTICLES_TABLE;
+    INDEX iRndZ = (ULONG(SLONG(vPos(3)+iZ))) % CT_MAX_PARTICLES_TABLE;
     FLOAT fZOrg = vPos(3) + (iZ+afStarsPositions[iRndZ][2])*fGridSize;
     for( INDEX iX=0; iX<ctGrids; iX++)
     {
 
       FLOAT fZ = fZOrg;
-      INDEX iRndX = (ULONG(vPos(1)+iX)) % CT_MAX_PARTICLES_TABLE;
+      INDEX iRndX = (ULONG(SLONG(vPos(1)+iX))) % CT_MAX_PARTICLES_TABLE;
       FLOAT fX = vPos(1) + (iX+afStarsPositions[iRndX][1])*fGridSize;
       FLOAT fT0 = afStarsPositions[(INDEX(2+Abs(fX)+Abs(fZ))*262147) % CT_MAX_PARTICLES_TABLE][2];
 
@@ -1800,11 +1800,11 @@ void Particles_Snow( CEntity *pen, FLOAT fGridSize, INDEX ctGrids)
 
   for( INDEX iZ=0; iZ<ctGrids; iZ++)
   {
-    INDEX iRndZ = (ULONG(vPos(3)+iZ)) % CT_MAX_PARTICLES_TABLE;
+    INDEX iRndZ = (ULONG(SLONG(vPos(3)+iZ))) % CT_MAX_PARTICLES_TABLE;
     FLOAT fZ = vPos(3) + (iZ+afStarsPositions[iRndZ][2])*fGridSize;
     for( INDEX iX=0; iX<ctGrids; iX++)
     {
-      INDEX iRndX = (ULONG(vPos(1)+iX)) % CT_MAX_PARTICLES_TABLE;
+      INDEX iRndX = (ULONG(SLONG(vPos(1)+iX))) % CT_MAX_PARTICLES_TABLE;
       FLOAT fX = vPos(1) + (iX+afStarsPositions[iRndX][1])*fGridSize;
       FLOAT fT0 = afStarsPositions[(INDEX(2+Abs(fX)+Abs(fZ))*262147) % CT_MAX_PARTICLES_TABLE][2];
       FLOAT fT = (fNow*(1+0.1f*afStarsPositions[iRndZ][2])+fT0);

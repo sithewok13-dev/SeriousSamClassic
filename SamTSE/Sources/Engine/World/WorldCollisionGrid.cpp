@@ -39,6 +39,13 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 //#pragma inline_depth(0)
 
+// Float to grid coordinate as on x86: out of range (and inf/NaN) gives
+// INT_MIN, which the clamps below turn into GRID_MIN -- one cell
+static inline INDEX GridCoord(double d)
+{
+  return (d > -2147483648.0 && d < 2147483648.0) ? INDEX(d) : INDEX(0x80000000);
+}
+
 // find grid box from float coordinates
 static inline void BoxToGrid(
   const FLOATaabbox3D &boxEntity, INDEX &iMinX, INDEX &iMaxX, INDEX &iMinZ, INDEX &iMaxZ)
@@ -58,10 +65,10 @@ static inline void BoxToGrid(
   iMaxX = (Isinf(fMaxX))?INDEX(GRID_MIN):Clamp(INDEX(ceil(fMaxX/GRID_CELLSIZE)), (INDEX)GRID_MIN, (INDEX)GRID_MAX);
   iMaxZ = (Isinf(fMaxZ))?INDEX(GRID_MIN):Clamp(INDEX(ceil(fMaxZ/GRID_CELLSIZE)), (INDEX)GRID_MIN, (INDEX)GRID_MAX);
 #else
-  iMinX = INDEX(floor(fMinX/GRID_CELLSIZE));
-  iMinZ = INDEX(floor(fMinZ/GRID_CELLSIZE));
-  iMaxX = INDEX(ceil(fMaxX/GRID_CELLSIZE));
-  iMaxZ = INDEX(ceil(fMaxZ/GRID_CELLSIZE));
+  iMinX = GridCoord(floor(fMinX/GRID_CELLSIZE));
+  iMinZ = GridCoord(floor(fMinZ/GRID_CELLSIZE));
+  iMaxX = GridCoord(ceil(fMaxX/GRID_CELLSIZE));
+  iMaxZ = GridCoord(ceil(fMaxZ/GRID_CELLSIZE));
 
   iMinX = Clamp(iMinX, (INDEX)GRID_MIN, (INDEX)GRID_MAX);
   iMinZ = Clamp(iMinZ, (INDEX)GRID_MIN, (INDEX)GRID_MAX);

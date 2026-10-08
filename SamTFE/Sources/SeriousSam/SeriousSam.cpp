@@ -685,6 +685,9 @@ void SetAdjusters()
 BOOL Init( HINSTANCE hInstance, int nCmdShow, CTString strCmdLine)
 {
 #ifdef PLATFORM_UNIX
+#ifdef PLATFORM_IOS
+  SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+#endif
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1)
     FatalError("SDL_Init(VIDEO|AUDIO) failed. Reason: [%s].", SDL_GetError());
   atexit(atexit_sdlquit);

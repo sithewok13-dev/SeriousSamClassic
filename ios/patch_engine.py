@@ -326,4 +326,88 @@ static void IOS_LogFrameStats(INDEX ctWorld, INDEX ctModel, INDEX ctTotal)
 #endif
 """, "IOS_LogFrameStats(INDEX ctWorld")
 
+    # ------------------------------------------- float->int like x86, on arm64
+    # Converting an out-of-range float (or +-inf, NaN) to an int is undefined
+    # in C++. x86 gives INT_MIN (0x80000000), which these spots were written
+    # around; arm64 saturates (+inf -> INT_MAX) instead. In BoxToGrid that made
+    # the infinite movement box of a Moving Brush (two in 1_0_InTheLastEpisode)
+    # span 64001x64001 collision cells, searched on every move: the first game
+    # tick never finished and the screen stayed black. The existing guards are
+    # for 32-bit ARM (__arm__) only. These do what x86 did, on every CPU, and
+    # give the same results as before on x86.
+    p = src / "Engine/World/WorldCollisionGrid.cpp"
+    sub(p, "// find grid box from float coordinates\n",
+"""// Float to grid coordinate as on x86: out of range (and inf/NaN) gives
+// INT_MIN, which the clamps below turn into GRID_MIN -- one cell
+static inline INDEX GridCoord(double d)
+{
+  return (d > -2147483648.0 && d < 2147483648.0) ? INDEX(d) : INDEX(0x80000000);
+}
+
+// find grid box from float coordinates
+""", "static inline INDEX GridCoord(double d)")
+    sub(p, """  iMinX = INDEX(floor(fMinX/GRID_CELLSIZE));
+  iMinZ = INDEX(floor(fMinZ/GRID_CELLSIZE));
+  iMaxX = INDEX(ceil(fMaxX/GRID_CELLSIZE));
+  iMaxZ = INDEX(ceil(fMaxZ/GRID_CELLSIZE));
+""", """  iMinX = GridCoord(floor(fMinX/GRID_CELLSIZE));
+  iMinZ = GridCoord(floor(fMinZ/GRID_CELLSIZE));
+  iMaxX = GridCoord(ceil(fMaxX/GRID_CELLSIZE));
+  iMaxZ = GridCoord(ceil(fMaxZ/GRID_CELLSIZE));
+""", "iMinX = GridCoord(floor(fMinX/GRID_CELLSIZE));")
+
+    # the same pattern for a terrain's rectangle (its guard is __arm__-only too)
+    p = src / "Engine/Terrain/TerrainMisc.cpp"
+    if p.exists():
+        t = p.read_text()
+        if "TerrainCoord(" not in t:
+            anchor = "  Rect rc;\n  if(!bFixSize) {\n"
+            assert t.count(anchor) == 1, p
+            t = t.replace(anchor, """  // Float to int as on x86: out of range (and inf/NaN) gives INT_MIN, which
+  // the clamps turn into 0
+  #define TerrainCoord(d) ((((double)(d)) > -2147483648.0 && ((double)(d)) < 2147483648.0) ? (INDEX)(d) : (INDEX)0x80000000)
+""" + anchor, 1)
+            for old, new in (("Clamp((INDEX)(bbox.minvect(1)-0),", "Clamp(TerrainCoord(bbox.minvect(1)-0),"),
+                             ("Clamp((INDEX)(bbox.minvect(3)-0),", "Clamp(TerrainCoord(bbox.minvect(3)-0),"),
+                             ("Clamp((INDEX)ceil(bbox.maxvect(1)+1),", "Clamp(TerrainCoord(ceil(bbox.maxvect(1)+1)),"),
+                             ("Clamp((INDEX)ceil(bbox.maxvect(3)+1),", "Clamp(TerrainCoord(ceil(bbox.maxvect(3)+1)),"),
+                             ("Clamp((INDEX)(bbox.maxvect(1)+0),", "Clamp(TerrainCoord(bbox.maxvect(1)+0),"),
+                             ("Clamp((INDEX)(bbox.maxvect(3)+0),", "Clamp(TerrainCoord(bbox.maxvect(3)+0),")):
+                assert t.count(old) >= 1, (p, old)
+                t = t.replace(old, new)
+            p.write_text(t)
+
+    # FloatToInt's portable branch (the one arm64 uses): x86's fistp gives
+    # INT_MIN for out-of-range values too (the light layer mixer hits it)
+    p = src / "Engine/Math/Functions.h"
+    sub(p, """  float addToRound = copysignf(0.5f, f); // copy f's signbit to 0.5 => if f<0 then addToRound = -0.5, else 0.5
+  return((SLONG) (f + addToRound));
+""", """  float addToRound = copysignf(0.5f, f); // copy f's signbit to 0.5 => if f<0 then addToRound = -0.5, else 0.5
+  const float fRounded = f + addToRound;
+  // out of range (and NaN): INT_MIN, as x86's fistp gives; arm64 would saturate
+  if (!(fRounded > -2147483648.0f && fRounded < 2147483648.0f)) return (SLONG)0x80000000;
+  return((SLONG) fRounded);
+""", "const float fRounded = f + addToRound;")
+
+    # rain/snow: a negative float to ULONG wraps on x86, but is 0 on arm64
+    for parts in src.glob("Entities*/Common/Particles.cpp"):
+        t = parts.read_text()
+        if "ULONG(SLONG(vPos(" not in t:
+            n = t.count("(ULONG(vPos(3)+iZ))") + t.count("(ULONG(vPos(1)+iX))")
+            assert n >= 2, parts
+            t = t.replace("(ULONG(vPos(3)+iZ))", "(ULONG(SLONG(vPos(3)+iZ)))")
+            t = t.replace("(ULONG(vPos(1)+iX))", "(ULONG(SLONG(vPos(1)+iX)))")
+            parts.write_text(t)
+
+    # ------------------------------------------------- no tilt-as-joystick
+    # SDL offers the accelerometer as joystick 1 ("iOS Accelerometer", 3 axes),
+    # so tilting the phone could feed the game's joystick axes
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, "  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1)\n",
+"""#ifdef PLATFORM_IOS
+  SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+#endif
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1)
+""", "SDL_HINT_ACCELEROMETER_AS_JOYSTICK")
+
     print(game, "patched")
