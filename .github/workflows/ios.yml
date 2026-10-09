@@ -2,19 +2,57 @@ name: iOS
 
 # Builds unsigned .ipa files for The First Encounter and The Second Encounter.
 # Sideload them (e.g. with Signulous); copy your own game data in through the Files app.
+#
+# Where the .ipa files go:
+#   - a push to ios, or a manual run with "release" left empty: both games to
+#     the "ios-latest" prerelease, as always.
+#   - a manual run of branch ios with "release" set to a tag such as ios-v0.1
+#     (gh workflow run ios.yml --ref ios -f release=ios-v0.1): a release for
+#     that tag, created at the commit being built, with ios/RELEASE_NOTES.md
+#     from that commit as its text and only the games in RELEASE_IPAS
+#     attached, marked as the latest release. A version with a '-' in it
+#     (ios-v0.2-beta1) is a prerelease instead and isn't marked latest.
+#     ios-latest is left alone. The run stops before building if the tag isn't
+#     ios-v<version>, is already on another commit, or the notes have no
+#     "### What's in <tag>" line.
+#   Running it again for the same tag on the same commit updates that release.
 
 on:
   push:
     branches: [ "ios" ]
   workflow_dispatch:
+    inputs:
+      release:
+        description: >-
+          Publish this build as a release with this tag (for example ios-v0.1),
+          created at the commit being built. Leave empty to update ios-latest as usual.
+        required: false
+        default: ''
+
+concurrency:
+  # Release runs for one tag go one at a time; a running one is never cancelled
+  # (a newer one waits, replacing any run already waiting). Every other run has
+  # a group of its own, so pushes run as before.
+  group: ${{ inputs.release != '' && format('ios-release-{0}', inputs.release) || format('ios-run-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 env:
   IOS_MIN: "14.0"
   SDL_TAG: release-2.30.8
   GL4ES_SHA: ec16bedd8819c475326f4f1a3063772c6d986e06
+  # The tag a manual run was asked to release; empty for pushes and ordinary runs.
+  RELEASE_TAG: ${{ inputs.release }}
+  # The .ipa files a release gets, space-separated. For now The Second Encounter
+  # only; add serioussam-ios.ipa (The First Encounter) to release both, and
+  # change RELEASE_TITLE to match. Every run still builds both games, and
+  # ios-latest still gets both.
+  RELEASE_IPAS: serioussamse-ios.ipa
+  # Release title; the tag's version is added after it (ios-v0.1 -> "... v0.1").
+  RELEASE_TITLE: "Serious Sam: The Second Encounter for iOS"
 
+# Read-only by default; only the release job, which publishes, can write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -31,6 +69,36 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        # the build steps don't need the token (git ls-remote of this public
+        # repository works without it)
+        persist-credentials: false
+
+    # Before the build: a release needs a usable tag and notes written for it.
+    - name: Check release tag and notes
+      if: env.RELEASE_TAG != ''
+      run: |
+        set -e
+        case "$RELEASE_TAG" in
+          ios-v*) ;;
+          *) echo "::error::Release tag \"$RELEASE_TAG\" should look like ios-v0.1 (ios-v<version>)."; exit 1 ;;
+        esac
+        if ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
+          echo "::error::\"$RELEASE_TAG\" can't be a git tag name."
+          exit 1
+        fi
+        # A tag already there must be on this commit, or the release's .ipa and
+        # its tag's source would differ (publishing doesn't move a tag).
+        REFS=$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")
+        TAGGED=$(echo "$REFS" | tail -n 1 | cut -f 1)
+        if [ -n "$TAGGED" ] && [ "$TAGGED" != "$GITHUB_SHA" ]; then
+          echo "::error::Tag $RELEASE_TAG is already on commit $TAGGED, not on $GITHUB_SHA (the commit this run builds). Pick a new tag."
+          exit 1
+        fi
+        if ! grep -qxF "### What's in ${RELEASE_TAG}" ios/RELEASE_NOTES.md; then
+          echo "::error file=ios/RELEASE_NOTES.md::No \"### What's in ${RELEASE_TAG}\" heading line. Update the release notes for ${RELEASE_TAG}, commit and push them, then run this again."
+          exit 1
+        fi
 
     - name: Host tools
       run: |
@@ -107,22 +175,85 @@ jobs:
         path: ${{ matrix.internal }}-ios.ipa
 
   release:
-    name: Publish to "iOS latest" release
+    name: ${{ inputs.release != '' && format('Publish release {0}', inputs.release) || 'Publish to "iOS latest" release' }}
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+    # Release runs only: the notes from the run's commit, for the release text.
+    # Kept first, as checkout empties the folder it checks out into.
+    - name: Get release notes
+      if: env.RELEASE_TAG != ''
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: ios/RELEASE_NOTES.md
+        sparse-checkout-cone-mode: false
+        persist-credentials: false
+
     - uses: actions/download-artifact@v4
       with:
         path: out
         merge-multiple: true
-    - uses: softprops/action-gh-release@v2
+
+    # Pushes and ordinary manual runs; a release run leaves ios-latest alone.
+    - name: Publish to "ios-latest" release
+      if: env.RELEASE_TAG == ''
+      uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
       with:
         tag_name: ios-latest
         name: iOS latest build
         prerelease: true
         make_latest: false
         body: |
-          Unsigned iOS builds from the `ios` branch (run ${{ github.run_number }}, commit ${{ github.sha }}).
+          Development builds, rebuilt after every push to the `ios` branch (run ${{ github.run_number }}, commit ${{ github.sha }}). They may not have been tried yet, and the First Encounter build has never been played. For the tested release and how to install it, see ${{ github.server_url }}/${{ github.repository }}/releases/latest
           serioussam-ios.ipa = The First Encounter, serioussamse-ios.ipa = The Second Encounter.
-          Sideload with Signulous, then copy your own game data into Files > On My iPhone > Sam FE / Sam SE.
+          Sideload one, then copy your own game data into Files > On My iPhone > Sam FE / Sam SE.
         files: out/*.ipa
+
+    # Release runs: only the games in RELEASE_IPAS, the title and whether it's
+    # a prerelease (a '-' in the version, after the "ios-").
+    - name: Prepare release
+      id: rel
+      if: env.RELEASE_TAG != ''
+      run: |
+        set -e
+        if ! grep -qxF "### What's in ${RELEASE_TAG}" ios/RELEASE_NOTES.md; then
+          echo "::error file=ios/RELEASE_NOTES.md::No \"### What's in ${RELEASE_TAG}\" heading line."
+          exit 1
+        fi
+        mkdir release
+        for ipa in $RELEASE_IPAS; do
+          if [ ! -f "out/$ipa" ]; then
+            echo "::error::$ipa (in RELEASE_IPAS) wasn't built."
+            exit 1
+          fi
+          cp "out/$ipa" release/
+        done
+        ls -la release
+        VERSION=${RELEASE_TAG#ios-}
+        case "$VERSION" in
+          *-*) PRERELEASE=true; LATEST=false ;;
+          *) PRERELEASE=false; LATEST=true ;;
+        esac
+        echo "Release \"$RELEASE_TITLE $VERSION\", prerelease $PRERELEASE, latest $LATEST"
+        {
+          echo "name=$RELEASE_TITLE $VERSION"
+          echo "prerelease=$PRERELEASE"
+          echo "latest=$LATEST"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Publish release for the tag
+      if: env.RELEASE_TAG != ''
+      uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+      with:
+        # Creates the tag at the commit this run built (left out, GitHub would
+        # put a new tag on the default branch, main)
+        tag_name: ${{ env.RELEASE_TAG }}
+        target_commitish: ${{ github.sha }}
+        name: ${{ steps.rel.outputs.name }}
+        body_path: ios/RELEASE_NOTES.md
+        prerelease: ${{ steps.rel.outputs.prerelease }}
+        make_latest: ${{ steps.rel.outputs.latest }}
+        files: release/*.ipa
+        fail_on_unmatched_files: true
