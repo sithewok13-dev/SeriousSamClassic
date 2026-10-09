@@ -847,6 +847,16 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
     if (tiTouch.ulButtons&IOSTOUCH_JUMP)   paAction.pa_vTranslation(2) += 1.0f;
     if (tiTouch.ulButtons&IOSTOUCH_CROUCH) paAction.pa_vTranslation(2) -= 1.0f;
   }
+  // tilt aiming (first local player, in the prescan every frame and in the
+  // tick): the degrees the phone turned (+ left) and tilted (+ up) since the
+  // last call, straight into the rotation -- the mouse settings never apply
+  if (_pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource!=NULL
+   && &pc==&_pGame->gm_apcPlayers[_pGame->gm_lpLocalPlayers[0].lp_iPlayer]) {
+    float fGyroYaw = 0.0f, fGyroPitch = 0.0f;
+    IOSTouch_TakeGyro(&fGyroYaw, &fGyroPitch);
+    paAction.pa_aRotation(1) += fGyroYaw;
+    paAction.pa_aRotation(2) += fGyroPitch;
+  }
 #endif
 
   // execute all button-action shell commands

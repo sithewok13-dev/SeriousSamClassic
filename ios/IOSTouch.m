@@ -5,12 +5,13 @@
    layout, the state shared with the game's thread, and what each touch does
    (the stick, looking, the buttons, the QUICK SAVE, QUICK LOAD and MENU
    holds, MENU's tray, the unread messages box's tap and hold, the FPS
-   count). The view below only hands UIKit's
-   touches to it and shows its state, so the Linux test drives this very
-   code. */
+   count, tilt aiming). The view below only hands UIKit's touches and
+   CoreMotion's samples to it and shows its state, so the Linux test drives
+   this very code. */
 
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreMotion/CoreMotion.h>
 #include <os/lock.h>
 #include <math.h>
 #include <stdio.h>
@@ -43,9 +44,11 @@
 // save over the quicksave (the one QUICK LOAD loads) or throw away progress
 #define IOSTOUCH_QUICKSAVE_HOLD 0.3
 #define IOSTOUCH_QUICKLOAD_HOLD 0.3
-// MENU held this long opens its tray (the keyboard, FPS); a tap opens the
-// menu as it lifts
+// MENU held this long opens its tray (tilt aiming's sensitivity and mode,
+// FPS, the keyboard); a tap opens the menu as it lifts. The tray's buttons
+// are IOSTOUCH_TRAY_STEP apart in a row.
 #define IOSTOUCH_MENU_HOLD 0.45
+#define IOSTOUCH_TRAY_STEP 50.0
 // The HUD's messages box held this long opens NETRICSA; a tap marks
 // every message read as it lifts. As long as MENU's hold, with the same ring
 // (both open something; QUICK SAVE's and QUICK LOAD's shorter holds only
@@ -68,6 +71,36 @@
 // The HUD's frame (IOSTouch_GetHudFrame) keeps its corners this far inside the
 // screen's rounded corners
 #define IOSTOUCH_HUD_CORNER_GAP 2.0
+// Tilt aiming (see IOSTouch_GyroFrame), as in the Jedi Knight port.
+// CoreMotion's device motion gives the rotation rate with the gyro's bias
+// already taken out, IOSTOUCH_GYRO_HZ times a second. Turning left and right
+// is measured about the way up (against gravity), so it works the same
+// however far back the phone is tipped ("player space": what the screen's
+// yaw and roll axes turn about up together -- made up by as much as
+// IOSTOUCH_GYRO_YAW_RELAX times for a phone held rolled a little to one
+// side, but never more than the two turn in all). Where up says nothing
+// about which way the player's head is -- the screen facing down at a player
+// lying under it, or rolled over on its side -- it is about the screen's own
+// up axis instead ("local space"). Tilting is about the screen's own
+// side-to-side axis. Under IOSTOUCH_GYRO_SMOOTH deg/s the motion is averaged
+// over the last IOSTOUCH_GYRO_SMOOTH_N samples (all of it under half that),
+// and under IOSTOUCH_GYRO_SOFT deg/s it is scaled down, to nothing at rest,
+// so a phone held still doesn't creep. A gap between two samples longer than
+// IOSTOUCH_GYRO_MAX_DT (a stall) is skipped, and so is what the phone did
+// between two frames more than IOSTOUCH_GYRO_MAX_FRAME apart (the game was
+// stopped: it would come all at once), or in the IOSTOUCH_GYRO_TURN_HOLD
+// after the screen turned round to the other landscape side (the phone is
+// still on its way round). The sensitivity is one of _afGyroSens: at 1.0x
+// the view turns as far as the phone does.
+#define IOSTOUCH_GYRO_HZ 100.0
+#define IOSTOUCH_GYRO_YAW_RELAX 1.41
+#define IOSTOUCH_GYRO_SMOOTH 4.0
+#define IOSTOUCH_GYRO_SMOOTH_N 12 // about 0.125 s
+#define IOSTOUCH_GYRO_SOFT 1.5
+#define IOSTOUCH_GYRO_MAX_DT 0.05
+#define IOSTOUCH_GYRO_MAX_FRAME 0.5
+#define IOSTOUCH_GYRO_TURN_HOLD 0.35
+#define IOSTOUCH_GYRO_DEFAULT_SENS 1 // 1.5x
 
 #define IOSTOUCH_MAX_TOUCHES 10
 
@@ -82,6 +115,8 @@ enum {
   KIND_HOLDLOAD, // asks for a quick load once held IOSTOUCH_QUICKLOAD_HOLD seconds without leaving it
   KIND_KEYBOARD, // (MENU's tray) opens or closes the console, when the touch lifts on it
   KIND_FPS,      // (MENU's tray) shows or hides the FPS readout, when the touch lifts on it
+  KIND_GYRO,     // (MENU's tray) the next tilt aiming mode, when the touch lifts on it
+  KIND_GYROSENS, // (MENU's tray) the next tilt aiming sensitivity, when the touch lifts on it
 };
 
 // which modes a button shows in
@@ -109,15 +144,15 @@ typedef struct {
 // starts on it mustn't use one up). Top left, below the
 // score: next and previous weapon. Top right: quick save and quick load
 // (each a short hold) and the menu. Holding MENU opens a tray just
-// under it: the keyboard, for the console (cheats), and FPS, which shows or
-// hides a frame rate readout by QUICK SAVE. RESUME, in the middle, only while
-// the game is paused.
+// under it: tilt aiming's sensitivity and mode (SENS, GYRO), FPS, which
+// shows or hides a frame rate readout by QUICK SAVE, and the keyboard, for
+// the console (cheats). RESUME, in the middle, only while the game is paused.
 enum {
   BTN_FIRE, BTN_ZOOM, BTN_CROUCH, BTN_USE, BTN_JUMP, BTN_BOMB,
   BTN_NEXTWPN, BTN_PREVWPN,
   BTN_QUICKSAVE, BTN_QUICKLOAD, BTN_MENU,
   BTN_RESUME,
-  BTN_TRAYFPS, BTN_TRAYKEYS, // MENU's tray, hidden unless it is open
+  BTN_TRAYSENS, BTN_TRAYGYRO, BTN_TRAYFPS, BTN_TRAYKEYS, // MENU's tray (left to right), hidden unless it is open
   BTN_COUNT
 };
 static IOSTouchButton _aButtons[] = {
@@ -133,6 +168,8 @@ static IOSTouchButton _aButtons[] = {
   [BTN_QUICKLOAD] = { "QUICK\nLOAD", KIND_HOLDLOAD, IOSTOUCH_REQ_QUICKLOAD, 22.0, 0, SHOW_PLAY },
   [BTN_MENU]      = { "MENU",        KIND_MENU,     IOSTOUCH_REQ_MENU,      22.0, 0, SHOW_ALL },
   [BTN_RESUME]    = { "RESUME",      KIND_TAP,      IOSTOUCH_REQ_RESUME,    44.0, 0, SHOW_PAUSE },
+  [BTN_TRAYSENS]  = { "SENS",        KIND_GYROSENS, 0,                      20.0, 0, SHOW_ALL },
+  [BTN_TRAYGYRO]  = { "GYRO",        KIND_GYRO,     0,                      20.0, 0, SHOW_ALL },
   [BTN_TRAYFPS]   = { "FPS",         KIND_FPS,      0,                      20.0, 0, SHOW_ALL },
   [BTN_TRAYKEYS]  = { "",            KIND_KEYBOARD, IOSTOUCH_REQ_CONSOLE,   20.0, 0, SHOW_ALL },
 };
@@ -141,7 +178,8 @@ typedef char IOSTouch_assertButtonCount[(IOSTOUCH_NUM_BUTTONS == BTN_COUNT) ? 1 
 
 // ------------------------------------------------------- shared with the game
 // The game reads these on its own thread (IOSTouch_ReadInput, 20 times a
-// second; IOSTouch_TakeLook, also every frame): only touch them under _lock.
+// second; IOSTouch_TakeLook and IOSTouch_TakeGyro, also every frame): only
+// touch them under _lock.
 
 static os_unfair_lock _lock = OS_UNFAIR_LOCK_INIT;
 static int _bReading = 0;         // gameplay controls are showing; otherwise the game gets nothing
@@ -153,6 +191,7 @@ static unsigned char _aPulseReads[IOSTOUCH_NUMBUTTONS];
 static unsigned char _aPulseGap[IOSTOUCH_NUMBUTTONS];
 static float _fMoveX = 0.0f, _fMoveY = 0.0f;
 static float _fLookX = 0.0f, _fLookY = 0.0f;
+static float _fGyroYaw = 0.0f, _fGyroPitch = 0.0f; // tilt aiming: degrees for the view to turn (+ left) and tilt (+ up)
 
 // Sets the game buttons held by touches. ulLifted: buttons whose touch just
 // lifted (not cancelled) -- if no tick saw them held, it was a tap quicker
@@ -181,6 +220,7 @@ static void IOSTouch_ResetShared(int bReading)
   memset(_aPulseGap, 0, sizeof(_aPulseGap));
   _fMoveX = _fMoveY = 0.0f;
   _fLookX = _fLookY = 0.0f;
+  _fGyroYaw = _fGyroPitch = 0.0f;
   os_unfair_lock_unlock(&_lock);
 }
 
@@ -219,8 +259,10 @@ typedef struct {
 } IOSTouchRect;
 
 // What the layout puts besides the buttons (points): the backing behind
-// MENU's tray, and the FPS readout's centre
-static IOSTouchRect _rTrayBack;
+// MENU's tray, the part of it behind its right two buttons (FPS and the
+// keyboard: where the FPS readout keeps clear of), and the FPS readout's
+// centre
+static IOSTouchRect _rTrayBack, _rTrayKeysBack;
 static double _fFpsX = 0.0, _fFpsY = 0.0;
 
 static double IOSTouch_DistToRect(double px, double py, const IOSTouchRect *r)
@@ -410,22 +452,23 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   _aButtons[BTN_QUICKSAVE].y = _aButtons[BTN_QUICKLOAD].y = _aButtons[BTN_MENU].y = top + 26;
 
   // MENU's tray: a row just under the corner, the keyboard right below MENU
-  // (a held thumb slides straight down onto it) and FPS left of that. Where
-  // BOMB, ZOOM or JUMP sits high in that corner (a smaller screen) the row
-  // moves left until it is clear of them -- or, if that never happens, to
-  // wherever it is furthest from them. (While open, the tray is on top and
-  // takes its own touches, but a touch meant for it mustn't land nearer one
-  // of those.)
+  // (a held thumb slides straight down onto it), then FPS, GYRO and SENS
+  // to the left, IOSTOUCH_TRAY_STEP apart. Where BOMB, ZOOM or JUMP sits high
+  // in that corner (a smaller screen) the row moves left until it is clear of
+  // them -- or, if that never happens, to wherever it is furthest from them.
+  // (While open, the tray is on top and takes its own touches, but a touch
+  // meant for it mustn't land nearer one of those.)
   {
     const IOSTouchButton *m = &_aButtons[BTN_MENU];
     const int aAvoid[3] = { BTN_BOMB, BTN_ZOOM, BTN_JUMP };
     const double ty = m->y + 52;
+    const double row = (BTN_TRAYKEYS - BTN_TRAYSENS) * IOSTOUCH_TRAY_STEP; // SENS to the keyboard
     double kx = m->x, bestGap = -1e9;
     for (double x = m->x; x >= m->x - 240; x -= 4) {
       double gap = 1e9;
       for (int i = 0; i < 3; i++) {
         const IOSTouchButton *f = &_aButtons[aAvoid[i]];
-        gap = fmin(gap, IOSTouch_DistToSegment(f->x, f->y, x - 50, ty, x, ty) - 26 - f->radius);
+        gap = fmin(gap, IOSTouch_DistToSegment(f->x, f->y, x - row, ty, x, ty) - 26 - f->radius);
       }
       if (gap > bestGap) {
         bestGap = gap;
@@ -433,15 +476,17 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
       }
       if (gap >= 8) break;
     }
-    _aButtons[BTN_TRAYKEYS].x = kx;
-    _aButtons[BTN_TRAYKEYS].y = ty;
-    _aButtons[BTN_TRAYFPS].x = kx - 50;
-    _aButtons[BTN_TRAYFPS].y = ty;
+    for (int i = BTN_TRAYSENS; i <= BTN_TRAYKEYS; i++) {
+      _aButtons[i].x = kx - (BTN_TRAYKEYS - i) * IOSTOUCH_TRAY_STEP;
+      _aButtons[i].y = ty;
+    }
     _rTrayBack.bValid = 1;
-    _rTrayBack.x0 = kx - 50 - 26;
+    _rTrayBack.x0 = kx - row - 26;
     _rTrayBack.y0 = ty - 26;
     _rTrayBack.x1 = kx + 26;
     _rTrayBack.y1 = ty + 26;
+    _rTrayKeysBack = _rTrayBack;
+    _rTrayKeysBack.x0 = kx - IOSTOUCH_TRAY_STEP - 26;
   }
 
   // The FPS readout where the keyboard button used to be, left of QUICK SAVE:
@@ -449,10 +494,12 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   // in the middle. Where that spot is on the high score box or the unread
   // messages box right of it (a narrower screen, a larger HUD), it moves right
   // towards QUICK SAVE; if it never fits there, it goes below QUICK SAVE (and
-  // on to the left), clear of BOMB, ZOOM and MENU's tray as well.
+  // on to the left), clear of BOMB, ZOOM and MENU's tray's FPS and keyboard
+  // as well. (Where the rest of the open tray lies over it, it hides while
+  // the tray is open: IOSTouch_FpsUnderTray.)
   {
     const IOSTouchButton *q = &_aButtons[BTN_QUICKSAVE];
-    const IOSTouchRect *const apr[4] = { prScore, prHiScore, prMessages, &_rTrayBack };
+    const IOSTouchRect *const apr[4] = { prScore, prHiScore, prMessages, &_rTrayKeysBack };
     const int aAvoid[2] = { BTN_BOMB, BTN_ZOOM };
     const double hw = IOSTOUCH_FPS_W * 0.5, hh = IOSTOUCH_FPS_H * 0.5;
     const double y2 = q->y + q->radius + 8 + hh;
@@ -588,6 +635,52 @@ static int _bFpsBase = 0;
 static unsigned int _ulFpsFrames = 0;
 static double _tFpsBase = 0.0;
 static int _iFpsShown = -1;
+// Tilt aiming: its mode and sensitivity (an index into _afGyroSens; the view
+// keeps both in the app's settings), whether the device has device motion
+// (the view sets it) and whether iOS refused it; whether the motion updates
+// are running, whether the last frame could have aimed (and when it was);
+// the landscape side the screen was last turned and when it turned round to
+// it. Under _gyroLock, as the samples come in on the motion queue: which way
+// round the screen is (+1 landscape left, -1 landscape right, 0 neither, so
+// no aiming), how far the view is to turn (degrees, + left) and tilt (+ up)
+// for the samples since the last frame, what the samples keep (the last
+// one's time, the smoothing's), and whether one came back refused.
+enum { IOSTOUCH_GYRO_OFF = 0, IOSTOUCH_GYRO_TOUCH, IOSTOUCH_GYRO_ALWAYS, IOSTOUCH_GYRO_NUM_MODES };
+static const float _afGyroSens[] = { 1.0f, 1.5f, 2.0f, 3.0f };
+#define IOSTOUCH_GYRO_NUM_SENS ((int)(sizeof(_afGyroSens) / sizeof(_afGyroSens[0])))
+static int _iGyroMode = IOSTOUCH_GYRO_OFF; // until it is switched on in MENU's tray
+static int _iGyroSens = IOSTOUCH_GYRO_DEFAULT_SENS;
+static int _bGyroAvailable = 0;
+static int _bGyroRefused = 0;
+static int _bGyroRunning = 0;
+static int _bGyroWasOk = 0;
+static double _tGyroLastFrame = 0.0;
+static int _iGyroLastSide = 0;
+static double _tGyroTurnedRound = -1.0e9;
+static os_unfair_lock _gyroLock = OS_UNFAIR_LOCK_INIT;
+static int _iGyroSide = 0;
+static double _fGyroQueueYaw = 0.0, _fGyroQueuePitch = 0.0;
+static double _tGyroLastSample = 0.0;
+static double _afGyroSmooth[IOSTOUCH_GYRO_SMOOTH_N][2];
+static int _iGyroSmoothNext = 0;
+static int _bGyroRefusedOnQueue = 0;
+
+// Whether this device has what tilt aiming needs (not the Simulator), and
+// iOS hasn't refused it
+static int IOSTouch_GyroAvailable(void)
+{
+  return _bGyroAvailable && !_bGyroRefused;
+}
+
+// The next mode or sensitivity (MENU's tray's GYRO and SENS)
+static void IOSTouch_GyroNextMode(void)
+{
+  _iGyroMode = (_iGyroMode + 1) % IOSTOUCH_GYRO_NUM_MODES;
+}
+static void IOSTouch_GyroNextSens(void)
+{
+  _iGyroSens = (_iGyroSens + 1) % IOSTOUCH_GYRO_NUM_SENS;
+}
 
 // Whether a button shows now
 static int IOSTouch_IsShown(int button)
@@ -595,7 +688,7 @@ static int IOSTouch_IsShown(int button)
   if (!(_aButtons[button].iShowIn & (1 << _iMode))) return 0;
   if (button == BTN_ZOOM) return _hud.bValid && _hud.bSniper;
   if (button == BTN_BOMB) return _hud.bValid && _hud.ctBombs > 0;
-  if (button == BTN_TRAYFPS || button == BTN_TRAYKEYS) return _bTrayOpen;
+  if (button >= BTN_TRAYSENS && button <= BTN_TRAYKEYS) return _bTrayOpen;
   return 1;
 }
 
@@ -610,11 +703,25 @@ static void IOSTouch_BombLabel(int ctBombs, char *str, size_t size)
 
 // Closest showing button the touch is on (with a little forgiveness), so a
 // touch in the gap between two buttons picks the nearer one rather than the
-// first listed.
+// first listed. The open MENU tray is drawn on top of the rest, so its
+// buttons come first: anywhere on its backing (which reaches as far round
+// each as that forgiveness does) is on the nearest one, the corners between
+// two of them too.
 static int IOSTouch_ButtonAt(double x, double y)
 {
   int best = -1;
   double bestDist = 0;
+  const IOSTouchButton *l = &_aButtons[BTN_TRAYSENS], *r = &_aButtons[BTN_TRAYKEYS];
+  if (_bTrayOpen && IOSTouch_DistToSegment(x, y, l->x, l->y, r->x, r->y) <= 26.0) {
+    for (int i = BTN_TRAYSENS; i <= BTN_TRAYKEYS; i++) {
+      const double d = fabs(x - _aButtons[i].x);
+      if (best < 0 || d < bestDist) {
+        best = i;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
   for (int i = 0; i < IOSTOUCH_NUM_BUTTONS; i++) {
     const IOSTouchButton *b = &_aButtons[i];
     if (!IOSTouch_IsShown(i)) continue;
@@ -631,6 +738,16 @@ static int IOSTouch_IsOnButton(double x, double y, int button)
 {
   const IOSTouchButton *b = &_aButtons[button];
   return hypot(x - b->x, y - b->y) <= b->radius + 6.0;
+}
+
+static int IOSTouch_IsTrayButton(int button);
+
+// Whether a finger lifting at (x,y) lifts on the button it came down on: on
+// it -- or, for one of the open tray's, anywhere on the backing nearer it
+// than the others (as IOSTouch_ButtonAt has it)
+static int IOSTouch_LiftsOnButton(double x, double y, int button)
+{
+  return IOSTouch_IsOnButton(x, y, button) || (IOSTouch_IsTrayButton(button) && IOSTouch_ButtonAt(x, y) == button);
 }
 
 // Whether the HUD's messages box shows now: in a game being played, while the
@@ -668,7 +785,7 @@ static int IOSTouch_StillOnMessages(const IOSTouchSlot *s, double x, double y)
 
 static int IOSTouch_IsTrayButton(int button)
 {
-  return button == BTN_TRAYKEYS || button == BTN_TRAYFPS;
+  return button >= BTN_TRAYSENS && button <= BTN_TRAYKEYS;
 }
 
 // QUICK SAVE and QUICK LOAD: the holds that end for good when the finger leaves the button
@@ -740,16 +857,23 @@ static void IOSTouch_SetShowFps(int bShow)
   _iFpsShown = -1;
 }
 
-// A tray button picked: it does its thing, and the tray closes
+// A tray button picked: it does its thing, and the tray closes -- except
+// after GYRO and SENS, which stay for another tap to go on to the next (with
+// no gyro, they do nothing)
 static void IOSTouch_UseTrayButton(int button)
 {
-  if (_aButtons[button].kind == KIND_KEYBOARD) {
+  const int kind = _aButtons[button].kind;
+  if (kind == KIND_KEYBOARD) {
     _iRequests |= _aButtons[button].ulAction; // the console, with the iOS keyboard
   }
-  else if (_aButtons[button].kind == KIND_FPS) {
+  else if (kind == KIND_FPS) {
     IOSTouch_SetShowFps(!_bShowFps);
   }
-  IOSTouch_SetTrayOpen(0);
+  else if ((kind == KIND_GYRO || kind == KIND_GYROSENS) && IOSTouch_GyroAvailable()) {
+    if (kind == KIND_GYRO) IOSTouch_GyroNextMode();
+    else IOSTouch_GyroNextSens();
+  }
+  if (kind != KIND_GYRO && kind != KIND_GYROSENS) IOSTouch_SetTrayOpen(0);
 }
 
 // A finger came down at (x,y) on a screen W points wide
@@ -885,14 +1009,14 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
     }
     // These act when the finger lifts on the button, so a slip onto one can
     // be dragged off again
-    if (!bCancelled && IOSTouch_IsOnButton(x, y, s->button)) {
+    if (!bCancelled && IOSTouch_LiftsOnButton(x, y, s->button)) {
       if (b->kind == KIND_TAP) {
         _iRequests |= b->ulAction;
       }
       else if (b->kind == KIND_PRESS) {
         ulLifted |= b->ulAction; // never held, so the game gets it as one press
       }
-      else if (b->kind == KIND_KEYBOARD || b->kind == KIND_FPS) {
+      else if (IOSTouch_IsTrayButton(s->button)) {
         IOSTouch_UseTrayButton(s->button);
       }
       else if (b->kind == KIND_MENU && !s->bFired) {
@@ -1051,6 +1175,186 @@ static void IOSTouch_CountFrames(unsigned int ulFrames, double now)
   }
 }
 
+// Whether the FPS readout is under the open tray's backing (it keeps clear
+// of the FPS and keyboard buttons' part, not of GYRO's and SENS's): it
+// hides while the tray is open
+static int IOSTouch_FpsUnderTray(void)
+{
+  const IOSTouchRect *r = &_rTrayBack;
+  if (!r->bValid) return 0;
+  const double dx = fmax(fmax(r->x0 - (_fFpsX + IOSTOUCH_FPS_W * 0.5), (_fFpsX - IOSTOUCH_FPS_W * 0.5) - r->x1), 0.0);
+  const double dy = fmax(fmax(r->y0 - (_fFpsY + IOSTOUCH_FPS_H * 0.5), (_fFpsY - IOSTOUCH_FPS_H * 0.5) - r->y1), 0.0);
+  return hypot(dx, dy) < 4.0;
+}
+
+// ---------------------------------------------------------------- tilt aiming
+// The view starts and stops CoreMotion's updates (IOSTouch_GyroRunUpdates)
+// and hands each sample to IOSTouch_GyroSample, on the samples' own queue;
+// IOSTouch_GyroFrame runs once a frame on the main thread, after the
+// frame's touches came in, and hands what may aim to the game's
+// IOSTouch_TakeGyro (either game thread). The two locks are never held
+// together.
+
+static void IOSTouch_GyroRunUpdates(int bRun); // the view's (CoreMotion)
+
+// One sample of device motion, on the samples' queue: the rotation rate w
+// (rad/s) and gravity g (toward the ground) in the device's own axes (x
+// right, y up, z out of the screen, as if held upright), taken at time t.
+// Adds how far it turns and tilts the view.
+static void IOSTouch_GyroSample(double wx, double wy, double wz, double gx, double gy, double gz, double t)
+{
+  os_unfair_lock_lock(&_gyroLock);
+  const double dt = _tGyroLastSample > 0.0 ? t - _tGyroLastSample : 0.0;
+  _tGyroLastSample = t;
+  const double s = _iGyroSide;
+  const double gn = sqrt(gx * gx + gy * gy + gz * gz);
+  if (s != 0.0 && dt > 0.0 && dt <= IOSTOUCH_GYRO_MAX_DT && gn > 0.1) {
+    // The screen's axes as the player sees it: right, up, toward them. How
+    // fast the phone turns about each (the right-hand way round: + about up
+    // turns left), and how far each points up.
+    const double rx = s * wy, ry = -s * wx, rz = wz;
+    const double ux = -s * gy / gn, uy = s * gx / gn, uz = -gz / gn;
+    // Not while held upside down for the way round the screen is turned
+    // (rolled more than 120 degrees either way, unless within 30 of flat):
+    // the phone is on its way round to the other landscape side
+    const double tilt = sqrt(ux * ux + uy * uy);
+    if (tilt < 0.5 || uy > -0.5 * tilt) {
+      double yaw = ry, pitch = rx;
+      if (uz >= 0.0 && (tilt < 0.5 || uy > 0.5 * tilt)) {
+        // Player space, while the screen faces up and is held the way round
+        // it is turned (rolled less than 60 degrees either way) or about
+        // flat: turning is about up, from the screen's up and
+        // toward-the-player axes as far as each points up
+        yaw = uy * ry + uz * rz;
+        const double mag = sqrt(ry * ry + rz * rz);
+        yaw = copysign(fmin(fabs(yaw) * IOSTOUCH_GYRO_YAW_RELAX, mag), yaw);
+      }
+      // (Otherwise local space: facing down, or rolled further over --
+      // which also leaves out the roll of a phone on its way round.)
+      yaw *= 180.0 / M_PI;
+      pitch *= 180.0 / M_PI;
+
+      // Smoothed only where it is slow
+      double m = sqrt(yaw * yaw + pitch * pitch);
+      double direct = (m - IOSTOUCH_GYRO_SMOOTH * 0.5) / (IOSTOUCH_GYRO_SMOOTH * 0.5);
+      direct = direct < 0.0 ? 0.0 : (direct > 1.0 ? 1.0 : direct);
+      _afGyroSmooth[_iGyroSmoothNext][0] = yaw * (1.0 - direct);
+      _afGyroSmooth[_iGyroSmoothNext][1] = pitch * (1.0 - direct);
+      _iGyroSmoothNext = (_iGyroSmoothNext + 1) % IOSTOUCH_GYRO_SMOOTH_N;
+      double sumYaw = 0.0, sumPitch = 0.0;
+      for (int i = 0; i < IOSTOUCH_GYRO_SMOOTH_N; i++) {
+        sumYaw += _afGyroSmooth[i][0];
+        sumPitch += _afGyroSmooth[i][1];
+      }
+      yaw = yaw * direct + sumYaw / IOSTOUCH_GYRO_SMOOTH_N;
+      pitch = pitch * direct + sumPitch / IOSTOUCH_GYRO_SMOOTH_N;
+
+      // The soft dead zone
+      m = sqrt(yaw * yaw + pitch * pitch);
+      if (m < IOSTOUCH_GYRO_SOFT) {
+        yaw *= m / IOSTOUCH_GYRO_SOFT;
+        pitch *= m / IOSTOUCH_GYRO_SOFT;
+      }
+      _fGyroQueueYaw += yaw * dt;
+      _fGyroQueuePitch += pitch * dt;
+    }
+  }
+  os_unfair_lock_unlock(&_gyroLock);
+}
+
+// A sample came back refused (the samples' queue): no tilt aiming from the
+// next frame on
+static void IOSTouch_GyroRefusedOnQueue(void)
+{
+  os_unfair_lock_lock(&_gyroLock);
+  _bGyroRefusedOnQueue = 1;
+  os_unfair_lock_unlock(&_gyroLock);
+}
+
+// Starts or stops the motion updates
+static void IOSTouch_GyroRun(int bRun)
+{
+  bRun = bRun != 0;
+  if (bRun == _bGyroRunning) return;
+  _bGyroRunning = bRun;
+  if (!bRun) {
+    IOSTouch_GyroRunUpdates(0);
+    return;
+  }
+  // From scratch: nothing from before it stopped, the smoothing empty
+  os_unfair_lock_lock(&_gyroLock);
+  _tGyroLastSample = 0.0;
+  _fGyroQueueYaw = _fGyroQueuePitch = 0.0;
+  memset(_afGyroSmooth, 0, sizeof(_afGyroSmooth));
+  os_unfair_lock_unlock(&_gyroLock);
+  IOSTouch_GyroRunUpdates(1);
+}
+
+// Whether either thumb is down on the game, for TOUCH: the left one on the
+// move stick (pushed or resting), or a right one where it aims -- on the
+// look area (resting or dragging), or on one of the buttons a drag on also
+// looks (FIRE, ZOOM, CROUCH, USE, JUMP). So with the left thumb on the
+// stick, the right one can hop from the look area onto FIRE (and is in the
+// air for a moment) without the aiming stopping. Not BOMB, the top row,
+// the unread messages box, the tray, or a touch being ignored.
+static int IOSTouch_GyroThumbDown(void)
+{
+  for (int i = 0; i < IOSTOUCH_MAX_TOUCHES; i++) {
+    const IOSTouchSlot *s = &_aSlots[i];
+    if (!s->touch) continue;
+    if (s->role == ROLE_STICK || s->role == ROLE_LOOK
+        || (s->role == ROLE_BUTTON && _aButtons[s->button].bLookWhileHeld)) return 1;
+  }
+  return 0;
+}
+
+// Once per frame, after the frame's touches came in (bShown: whether the
+// overlay is up; bActive: whether the app is in front; side: which way round
+// the screen is turned, +1 landscape left, -1 landscape right, 0 neither).
+// The motion updates run only while the game is being played with the
+// overlay up, the app in front, tilt aiming on and the screen turned either
+// landscape way. What the phone turned since the last frame goes to the
+// game, for the player's rotation (IOSTouch_TakeGyro) -- if it could aim
+// both then and now, so in TOUCH lifting the last thumb freezes the view
+// where it is (the frame it lifted in counts for nothing, as does the frame
+// the first one lands in) and nothing springs back, and touching again
+// carries on from there, from however the phone is held by then. Never
+// while MENU's tray is open, just after the screen turned round to the
+// other landscape side, nor after a frame that took too long; and only
+// while the game reads the touch controls, so nothing is left waiting for
+// it across a pause.
+static void IOSTouch_GyroFrame(int bShown, int bActive, int side, double now)
+{
+  if (side != 0 && _iGyroLastSide != 0 && side != _iGyroLastSide) _tGyroTurnedRound = now;
+  if (side != 0) _iGyroLastSide = side;
+  IOSTouch_GyroRun(bShown && _iMode == IOSTOUCH_GAMEPLAY && bActive && side != 0 && _iGyroMode != IOSTOUCH_GYRO_OFF
+                   && IOSTouch_GyroAvailable());
+
+  os_unfair_lock_lock(&_gyroLock);
+  _iGyroSide = side;
+  const double yaw = _fGyroQueueYaw, pitch = _fGyroQueuePitch;
+  _fGyroQueueYaw = _fGyroQueuePitch = 0.0;
+  _bGyroRefused |= _bGyroRefusedOnQueue; // (stops it next frame)
+  os_unfair_lock_unlock(&_gyroLock);
+
+  const int bOk = _bGyroRunning && (_iGyroMode == IOSTOUCH_GYRO_ALWAYS || IOSTouch_GyroThumbDown()) && !_bTrayOpen
+                  && now - _tGyroTurnedRound >= IOSTOUCH_GYRO_TURN_HOLD;
+  const int bUse = bOk && _bGyroWasOk && now - _tGyroLastFrame <= IOSTOUCH_GYRO_MAX_FRAME;
+  _bGyroWasOk = bOk;
+  _tGyroLastFrame = now;
+  if (!bUse) return;
+
+  // Degrees, straight into the player's rotation (Game.cpp): the game's
+  // mouse settings never apply, so at 1.0x the view turns as far as the phone
+  const float k = _afGyroSens[_iGyroSens];
+  os_unfair_lock_lock(&_lock);
+  if (_bReading) {
+    _fGyroYaw += (float)yaw * k;
+    _fGyroPitch += (float)pitch * k;
+  }
+  os_unfair_lock_unlock(&_lock);
+}
+
 // Lets go of every touch and closes the tray (on every change of mode);
 // bReading: whether the game gets input now
 static void IOSTouch_ResetTouches(int bReading)
@@ -1064,13 +1368,76 @@ static void IOSTouch_ResetTouches(int bReading)
   _fSaveRing = _fLoadRing = _fMenuRing = _fMessagesRing = 0.0f;
   _tLastTick = 0.0;
   _bFpsBase = 0;
+  _bGyroWasOk = 0; // the next frame's motion doesn't count
   IOSTouch_ResetShared(bReading);
 }
 
 // ---------------------------------------------------------------- overlay view
 
-// Kept in the app's settings: whether the FPS readout shows
+// Kept in the app's settings: whether the FPS readout shows; tilt aiming's
+// mode (0 OFF, 1 TOUCH, 2 ALWAYS; never set or not one of those: OFF) and
+// sensitivity (the nearest of _afGyroSens; never set: 1.5x)
 #define IOSTOUCH_FPS_DEFAULTS_KEY @"iosTouchShowFps"
+#define IOSTOUCH_GYRO_DEFAULTS_KEY @"iosTouchGyroMode"
+#define IOSTOUCH_GYRO_SENS_DEFAULTS_KEY @"iosTouchGyroSens"
+
+// Tilt aiming's motion manager (one for the app, as Apple asks) and the
+// queue its samples are handled on
+static CMMotionManager *_pMotion = nil;
+static NSOperationQueue *_pMotionQueue = nil;
+
+// Whether an error the motion updates hand back is iOS refusing the motion
+// data (no permission: none is asked for today, but iOS could start to)
+static int IOSTouch_GyroIsRefusal(NSError *err)
+{
+  if (![err.domain isEqualToString:CMErrorDomain]) return 0;
+  return err.code == CMErrorNotAuthorized || err.code == CMErrorNotEntitled
+         || err.code == CMErrorMotionActivityNotAuthorized || err.code == CMErrorMotionActivityNotEntitled;
+}
+
+// Starts or stops CoreMotion's updates (IOSTouch_GyroRun decides when)
+static void IOSTouch_GyroRunUpdates(int bRun)
+{
+  if (!bRun) {
+    [_pMotion stopDeviceMotionUpdates];
+    return;
+  }
+  _pMotion.deviceMotionUpdateInterval = 1.0 / IOSTOUCH_GYRO_HZ;
+  // (the reference frame that needs no compass: the attitude isn't used)
+  [_pMotion startDeviceMotionUpdatesUsingReferenceFrame:CMAttitudeReferenceFrameXArbitraryZVertical
+                                                toQueue:_pMotionQueue
+                                            withHandler:^(CMDeviceMotion *dm, NSError *err) {
+    if (err && IOSTouch_GyroIsRefusal(err)) IOSTouch_GyroRefusedOnQueue();
+    if (!dm || err) return;
+    const CMRotationRate w = dm.rotationRate;
+    const CMAcceleration g = dm.gravity;
+    IOSTouch_GyroSample(w.x, w.y, w.z, g.x, g.y, g.z, dm.timestamp);
+  }];
+}
+
+// Once, as the overlay is made: the motion manager and the queue for its
+// samples (nothing runs yet), and the settings -- OFF and 1.5x unless set
+static void IOSTouch_GyroSetup(void)
+{
+  if (_pMotion) return;
+  _pMotion = [[CMMotionManager alloc] init];
+  _pMotionQueue = [[NSOperationQueue alloc] init];
+  _pMotionQueue.maxConcurrentOperationCount = 1; // in order, one at a time
+  _pMotionQueue.qualityOfService = NSQualityOfServiceUserInteractive;
+  _bGyroAvailable = _pMotion.deviceMotionAvailable ? 1 : 0;
+
+  NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+  if ([d objectForKey:IOSTOUCH_GYRO_DEFAULTS_KEY]) {
+    const NSInteger m = [d integerForKey:IOSTOUCH_GYRO_DEFAULTS_KEY];
+    _iGyroMode = (m >= 0 && m < IOSTOUCH_GYRO_NUM_MODES) ? (int)m : IOSTOUCH_GYRO_OFF;
+  }
+  if ([d objectForKey:IOSTOUCH_GYRO_SENS_DEFAULTS_KEY]) {
+    const float k = [d floatForKey:IOSTOUCH_GYRO_SENS_DEFAULTS_KEY];
+    for (int i = 0; i < IOSTOUCH_GYRO_NUM_SENS; i++) {
+      if (fabsf(_afGyroSens[i] - k) < fabsf(_afGyroSens[_iGyroSens] - k)) _iGyroSens = i;
+    }
+  }
+}
 
 static IOSTouchRect _rScoreFrac, _rHiScoreFrac, _rMessagesFrac; // the last boxes the HUD showed (fractions)
 // What the current layout was made for
@@ -1078,16 +1445,29 @@ static IOSTouchRect _rLayoutScore, _rLayoutHiScore, _rLayoutMessages; // in poin
 static int _iLayoutCutoutRight = -1;
 static unsigned int _ulFramesDrawn = 0; // the game's frame count at the last IOSTouch_Update
 
-// Whether the camera cutout may be on the right of the screen. Landscape right
-// has the bottom of the phone on the right, so the cutout (at the top) is on
-// the left; landscape left puts it on the right. SDL2 makes its window without
-// a scene, so ask SDL (which follows the status bar) if there is none. Not
-// known yet: assume it can be.
-static int IOSTouch_CutoutMayBeRight(UIView *v)
+// Which way round the screen is turned: +1 landscape left (the top of the
+// phone on the right), -1 landscape right (the top on the left), 0 neither
+// or not known yet. SDL2 makes its window without a scene, so ask SDL (which
+// follows the status bar) if there is none: its LANDSCAPE is landscape
+// right, LANDSCAPE_FLIPPED landscape left.
+static int IOSTouch_ScreenSide(UIView *v)
 {
   UIWindowScene *scene = v.window.windowScene;
-  if (scene) return scene.interfaceOrientation != UIInterfaceOrientationLandscapeRight;
-  return SDL_GetDisplayOrientation(0) != SDL_ORIENTATION_LANDSCAPE; // = landscape right
+  if (scene) {
+    const UIInterfaceOrientation o = scene.interfaceOrientation;
+    return (o == UIInterfaceOrientationLandscapeLeft) ? 1 : ((o == UIInterfaceOrientationLandscapeRight) ? -1 : 0);
+  }
+  const SDL_DisplayOrientation o = SDL_GetDisplayOrientation(0);
+  return (o == SDL_ORIENTATION_LANDSCAPE_FLIPPED) ? 1 : ((o == SDL_ORIENTATION_LANDSCAPE) ? -1 : 0);
+}
+
+// Whether the camera cutout may be on the right of the screen. Landscape right
+// has the bottom of the phone on the right, so the cutout (at the top) is on
+// the left; landscape left puts it on the right. Not known yet: assume it can
+// be.
+static int IOSTouch_CutoutMayBeRight(UIView *v)
+{
+  return IOSTouch_ScreenSide(v) != -1;
 }
 
 @interface IOSTouchOverlay : UIView {
@@ -1104,6 +1484,9 @@ static int IOSTouch_CutoutMayBeRight(UIView *v)
   int iFpsLabel;          // ...the number it says (-1: none yet)
   int bFpsSaved;          // whether the app's settings say it shows
   int ctBombsShown;       // what BOMB's label says (-1: not yet set)
+  int iGyroModeSaved;     // tilt aiming's mode and sensitivity as the app's settings have them
+  int iGyroSensSaved;
+  int iGyroLabels;        // what GYRO's and SENS's labels say (-1: not yet set)
 }
 - (void)resetAll;
 - (void)tick;
@@ -1129,6 +1512,17 @@ static CGFloat IOSTouch_FontSize(const char *label, CGFloat radius)
   if (strchr(label, '\n')) return radius >= 28 ? 10 : 9; // two-line labels
   if (radius < 40 && strlen(label) > 5) return 12;      // CROUCH: stays on one line
   return radius >= 40 ? 16 : (radius >= 25 ? 13 : 10);
+}
+
+// SENS's and GYRO's font: condensed (as in the Jedi Knight port) so "ALWAYS"
+// fits a circle this small. Before iOS 16 the system font has no condensed
+// width, so it is a point smaller instead.
+static UIFont *IOSTouch_TrayFont(CGFloat size)
+{
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 160000
+  if (@available(iOS 16.0, *)) return [UIFont systemFontOfSize:size weight:UIFontWeightBold width:UIFontWidthCondensed];
+#endif
+  return [UIFont boldSystemFontOfSize:size - 1];
 }
 
 // A ring round a button of radius r that fills (strokeEnd) while it is held
@@ -1199,7 +1593,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     [messagesBack.layer addSublayer:messagesRing];
     [self addSubview:messagesBack];
 
-    // MENU's tray: its two buttons on a dark backing, hidden until a hold on
+    // MENU's tray: its buttons on a dark backing, hidden until a hold on
     // MENU opens it. The keyboard button shows the keyboard symbol.
     trayBack = [[UIView alloc] initWithFrame:CGRectZero];
     trayBack.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
@@ -1208,7 +1602,16 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     trayBack.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.4].CGColor;
     trayBack.userInteractionEnabled = NO;
     trayBack.hidden = YES;
-    [self insertSubview:trayBack belowSubview:aButtonViews[BTN_TRAYFPS]];
+    [self insertSubview:trayBack belowSubview:aButtonViews[BTN_TRAYSENS]];
+    // GYRO and SENS say what they are set to on a second line (labels set
+    // in refreshButtonLooks), sized for the longest
+    IOSTouch_GyroSetup();
+    iGyroModeSaved = _iGyroMode;
+    iGyroSensSaved = _iGyroSens;
+    iGyroLabels = -1;
+    for (int i = BTN_TRAYSENS; i <= BTN_TRAYGYRO; i++) {
+      aButtonViews[i].font = IOSTouch_TrayFont(IOSTouch_FontSize("GYRO\nALWAYS", _aButtons[i].radius));
+    }
     UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
     UIImage *kb = [UIImage systemImageNamed:@"keyboard" withConfiguration:cfg];
     if (kb) {
@@ -1315,9 +1718,24 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   stickKnob.hidden = NO;
 }
 
+// What the tray's GYRO and SENS say: the mode and the sensitivity (NO GYRO
+// without one)
+- (void)refreshGyroLabels
+{
+  static const char *const astrMode[IOSTOUCH_GYRO_NUM_MODES] = { "OFF", "TOUCH", "ALWAYS" };
+  const int bGyro = IOSTouch_GyroAvailable();
+  const int iLabels = (bGyro ? 1 : 0) + 2 * (_iGyroMode + IOSTOUCH_GYRO_NUM_MODES * _iGyroSens);
+  if (iLabels == iGyroLabels) return;
+  iGyroLabels = iLabels;
+  aButtonViews[BTN_TRAYGYRO].text = bGyro ? [NSString stringWithFormat:@"GYRO\n%s", astrMode[_iGyroMode]] : @"NO\nGYRO";
+  aButtonViews[BTN_TRAYSENS].text = [NSString stringWithFormat:@"SENS\n%.1fx", (double)_afGyroSens[_iGyroSens]];
+}
+
 // Which buttons show and how; the tray and the FPS readout
 - (void)refreshButtonLooks
 {
+  [self refreshGyroLabels];
+  const int bGyro = IOSTouch_GyroAvailable();
   for (int i = 0; i < IOSTOUCH_NUM_BUTTONS; i++) {
     UILabel *l = aButtonViews[i];
     const int bShown = IOSTouch_IsShown(i);
@@ -1329,12 +1747,17 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
       bHeld = s->touch && s->role == ROLE_BUTTON && s->button == BTN_MENU && s->bFired && s->trayButton == i;
     }
     l.backgroundColor = [UIColor colorWithWhite:(bHeld ? 1.0 : 0.0) alpha:(bHeld ? 0.30 : 0.22)];
-    // The open console (on MENU and the tray's keyboard) and the FPS readout
-    // being on (on the tray's FPS) stand out in yellow, at full strength
+    // The open console (on MENU and the tray's keyboard), the FPS readout
+    // being on (on the tray's FPS) and tilt aiming being on (on the tray's
+    // GYRO) stand out in yellow, at full strength
     const int bOn = ((i == BTN_TRAYKEYS || i == BTN_MENU) && _iMode == IOSTOUCH_CONSOLE)
-                    || (i == BTN_TRAYFPS && _bShowFps);
+                    || (i == BTN_TRAYFPS && _bShowFps)
+                    || (i == BTN_TRAYGYRO && bGyro && _iGyroMode != IOSTOUCH_GYRO_OFF);
     const int bTray = IOSTouch_IsTrayButton(i); // only there while the tray is open
-    l.alpha = (bHeld || bOn || bTray) ? 1.0 : IOSTOUCH_IDLE_ALPHA;
+    CGFloat alpha = (bHeld || bOn || bTray) ? 1.0 : IOSTOUCH_IDLE_ALPHA;
+    if (i == BTN_TRAYGYRO && !bGyro) alpha *= 0.45;                                       // no gyro here
+    if (i == BTN_TRAYSENS && (!bGyro || _iGyroMode == IOSTOUCH_GYRO_OFF)) alpha *= 0.45; // ...or it's off
+    l.alpha = alpha;
     if (i != BTN_FIRE) {
       l.layer.borderColor = bOn ? [UIColor colorWithRed:1.0 green:0.85 blue:0.3 alpha:0.95].CGColor
                                 : [UIColor colorWithWhite:1.0 alpha:0.4].CGColor;
@@ -1342,11 +1765,21 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   }
   if (trayBack.hidden == _bTrayOpen) trayBack.hidden = !_bTrayOpen;
 
-  // The FPS readout, and the app's settings when it was switched on or off
-  if (fpsLabel.hidden == _bShowFps) fpsLabel.hidden = !_bShowFps;
+  // The FPS readout (not while the open tray lies over it), and the app's
+  // settings when it, or tilt aiming's mode or sensitivity, was changed
+  const int bFpsShown = _bShowFps && !(_bTrayOpen && IOSTouch_FpsUnderTray());
+  if (fpsLabel.hidden == bFpsShown) fpsLabel.hidden = !bFpsShown;
   if (bFpsSaved != _bShowFps) {
     bFpsSaved = _bShowFps;
     [[NSUserDefaults standardUserDefaults] setBool:(_bShowFps ? YES : NO) forKey:IOSTOUCH_FPS_DEFAULTS_KEY];
+  }
+  if (iGyroModeSaved != _iGyroMode) {
+    iGyroModeSaved = _iGyroMode;
+    [[NSUserDefaults standardUserDefaults] setInteger:_iGyroMode forKey:IOSTOUCH_GYRO_DEFAULTS_KEY];
+  }
+  if (iGyroSensSaved != _iGyroSens) {
+    iGyroSensSaved = _iGyroSens;
+    [[NSUserDefaults standardUserDefaults] setFloat:_afGyroSens[_iGyroSens] forKey:IOSTOUCH_GYRO_SENS_DEFAULTS_KEY];
   }
   if (iFpsLabel != _iFpsShown) {
     iFpsLabel = _iFpsShown;
@@ -1587,6 +2020,16 @@ static int IOSTouch_UpdateOverlay(void *pSDLWindow, int iMode, const IOSTouchHud
     }
     [_pOverlay tick];
   }
+
+  // Tilt aiming, after the frame's touches came in: only while the overlay
+  // is up and the app in front (the samples' side from the screen's)
+  const int bHadGyro = IOSTouch_GyroAvailable();
+  IOSTouch_GyroFrame(!_pOverlay.hidden && _pOverlay.superview != nil,
+                     [UIApplication sharedApplication].applicationState == UIApplicationStateActive,
+                     IOSTouch_ScreenSide(_pOverlay), CACurrentMediaTime());
+  if (IOSTouch_GyroAvailable() != bHadGyro) {
+    [_pOverlay refreshButtonLooks]; // iOS refused the motion data: the tray's GYRO says NO GYRO
+  }
   return iRequests;
 }
 
@@ -1606,6 +2049,7 @@ void IOSTouch_Hide(void)
 {
   @autoreleasepool {
     if (_iMode != IOSTOUCH_HIDDEN) IOSTouch_SetMode(IOSTOUCH_HIDDEN);
+    IOSTouch_GyroRun(0); // no motion updates while loading or in the background
   }
 }
 
@@ -1649,5 +2093,14 @@ void IOSTouch_TakeLook(float *pfDX, float *pfDY)
   *pfDX = _bReading ? _fLookX : 0.0f;
   *pfDY = _bReading ? _fLookY : 0.0f;
   _fLookX = _fLookY = 0.0f;
+  os_unfair_lock_unlock(&_lock);
+}
+
+void IOSTouch_TakeGyro(float *pfYaw, float *pfPitch)
+{
+  os_unfair_lock_lock(&_lock);
+  *pfYaw = _bReading ? _fGyroYaw : 0.0f;
+  *pfPitch = _bReading ? _fGyroPitch : 0.0f;
+  _fGyroYaw = _fGyroPitch = 0.0f;
   os_unfair_lock_unlock(&_lock);
 }

@@ -518,6 +518,32 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
 #endif
 }
 """, "IOSTouch_ReadInput(&tiTouch);")
+    # Tilt aiming: the degrees the phone turned go straight into the first
+    # local player's rotation, every frame in the prescan (shown at once with
+    # sharp turning) and every tick, before the player's packet adds them to
+    # its absolute angle -- not through the mouse counts, whose filter and
+    # precision options aren't linear (and invert, sensitivity, smoothing
+    # and the axis bindings apply there), so at 1.0x the view turns as far
+    # as the phone whatever they are set to. The prescan doesn't set
+    # ctl_iCurrentPlayerLocal, so the first local player is told by its
+    # character.
+    sub(p, """    if (tiTouch.ulButtons&IOSTOUCH_CROUCH) paAction.pa_vTranslation(2) -= 1.0f;
+  }
+#endif
+""", """    if (tiTouch.ulButtons&IOSTOUCH_CROUCH) paAction.pa_vTranslation(2) -= 1.0f;
+  }
+  // tilt aiming (first local player, in the prescan every frame and in the
+  // tick): the degrees the phone turned (+ left) and tilted (+ up) since the
+  // last call, straight into the rotation -- the mouse settings never apply
+  if (_pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource!=NULL
+   && &pc==&_pGame->gm_apcPlayers[_pGame->gm_lpLocalPlayers[0].lp_iPlayer]) {
+    float fGyroYaw = 0.0f, fGyroPitch = 0.0f;
+    IOSTouch_TakeGyro(&fGyroYaw, &fGyroPitch);
+    paAction.pa_aRotation(1) += fGyroYaw;
+    paAction.pa_aRotation(2) += fGyroPitch;
+  }
+#endif
+""", "IOSTouch_TakeGyro(")
 
     # The touch controls' USE never works the sniper scope (ZOOM does): with
     # the rifle held, the Use key toggles the scope when there is nothing to
@@ -968,6 +994,16 @@ void CMGKeyDefinition::Think( void)
       }
       IOS_WaitForForeground();
 """, "_pShell->StorePersistentSymbols(")
+    # ...and the touch controls hide first, which stops tilt aiming's motion
+    # updates: the loop waits here, so no frame would see the app inactive
+    sub(p, """        CPrintF("Cannot save game settings: %s\\n", strError);
+      }
+      IOS_WaitForForeground();
+""", """        CPrintF("Cannot save game settings: %s\\n", strError);
+      }
+      IOSTouch_Hide();
+      IOS_WaitForForeground();
+""", "IOSTouch_Hide();\n      IOS_WaitForForeground();")
 
     # the console's last lines, the clock, the stats and the pause indicators
     # inside the HUD's frame too (the console's lines start at the top left)

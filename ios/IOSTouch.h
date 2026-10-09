@@ -8,6 +8,33 @@
        mouse settings apply: Options > Controls' SENSITIVITY, INVERT LOOK
        and SMOOTH AXIS; the look speed is set for MOUSE ACCELERATION on, as
        it is by default)
+     - tilt aiming: turning the phone turns the view, on top of what the
+       drag does, as in the Jedi Knight port. It starts OFF, until it is
+       switched on in MENU's tray. TOUCH aims while either thumb is down on
+       the game: the left one on the move stick (pushed or resting), or the
+       right one where it aims -- on the look area (resting or dragging), or
+       on FIRE, ZOOM, CROUCH, USE or JUMP (the buttons a drag on also
+       looks). So with the left thumb on the stick, the right one can hop
+       from the look area onto FIRE without the aiming stopping. BOMB, the
+       top row, the messages box and the tray don't count. Lifting both
+       thumbs is like lifting a mouse: the view freezes where it is and
+       nothing springs back, and touching again carries on from there,
+       however the phone is held by then. ALWAYS aims with no thumb down;
+       OFF never. Turning is measured about the way up, so it works however
+       far back the phone is tipped, to lying flat; with the screen facing
+       down (lying on your back under it) or the phone rolled right over
+       (lying on your side) it is about the screen's own up axis instead,
+       as if looking through it. Tilting the top of the phone toward you
+       looks up. At 1.0x sensitivity the view turns as far as the phone
+       does: it goes straight into the player's rotation, so Options >
+       Controls' mouse settings (and the console's mouse filter and
+       precision) never change it -- the sniper scope's zoom slows it, as
+       it does every turn. It never aims while MENU's tray is open, nor for
+       a moment after the screen turns round to the other landscape side,
+       and the gyro is only read while a game is being played (not in
+       menus, NETRICSA, the console, while paused or loading), the app in
+       front and tilt aiming on. Should iOS ever refuse the motion data, or
+       the device have none, the tray's GYRO says NO GYRO.
      - buttons. Bottom right: FIRE, with CROUCH / USE / JUMP on an arc around
        it; ZOOM beside FIRE while the sniper rifle is held and BOMB beside
        JUMP while there are serious bombs, saying how many (both Second
@@ -39,12 +66,17 @@
        are found complete in the same frame, e.g. after a long one): never a
        save and a load from one press.
      - MENU: a tap opens the menu (as the finger lifts). Held until its ring
-       fills (0.45 s), it opens a small tray just under it instead: the
-       keyboard (opens the console with the iOS keyboard, for cheats;
-       tapping it again closes both) and FPS (shows or hides a frame rate
-       readout by QUICK SAVE, remembered across launches). Slide the
-       held thumb onto one, or lift and tap it; a touch anywhere else closes
-       the tray.
+       fills (0.45 s), it opens a small tray just under it instead: SENS
+       (tilt aiming's sensitivity: 1.0x, 1.5x, 2.0x, 3.0x; 1.5x to begin
+       with), GYRO (tilt aiming: OFF, TOUCH, ALWAYS; lit while on), FPS
+       (shows or hides a frame rate readout by QUICK SAVE) and the keyboard
+       (opens the console with the iOS keyboard, for cheats; tapping it
+       again closes both); all but the keyboard are remembered across
+       launches. Slide the held thumb onto one, or lift and tap it; GYRO
+       and SENS go on to the next setting and leave the tray open for
+       another tap, FPS and the keyboard close it, and so does a touch
+       anywhere else. While it is open the FPS readout hides where the tray
+       lies over it.
    Buttons act on the player directly, not through key bindings, so they
    work whatever keys are bound. While the game is paused (e.g. after the app
    was in the background) only RESUME and MENU show; while the console is
@@ -68,7 +100,8 @@
 
    Threads: IOSTouch_Update and IOSTouch_Hide run on the main thread,
    IOSTouch_ReadInput on the game's input thread (SDLTimer, once per game
-   tick), IOSTouch_TakeLook on either. */
+   tick), IOSTouch_TakeLook and IOSTouch_TakeGyro on either; the motion
+   samples come in on a queue of their own. */
 
 #ifndef SE_INCL_IOSTOUCH_H
 #define SE_INCL_IOSTOUCH_H
@@ -140,7 +173,9 @@ int IOSTouch_Update(void *pSDLWindow, int iMode, const IOSTouchHud *pHud, unsign
    IOSTouch.m), as x0, y0, x1, y1 fractions of the screen. The whole screen
    until IOSTouch_Update has seen SDL's view. */
 void IOSTouch_GetHudFrame(float afFrame[4]);
-/* Main thread: hide now (a level is loading); the next update shows it again */
+/* Main thread: hide now (a level is loading, or the app is going to the
+   background), and stop tilt aiming's motion updates; the next update shows
+   it again */
 void IOSTouch_Hide(void);
 /* Game input thread, once per game tick: the stick and the buttons. A button
    tapped too quickly for any tick to see it is reported for two ticks, then
@@ -148,6 +183,9 @@ void IOSTouch_Hide(void);
 void IOSTouch_ReadInput(IOSTouchInput *pInput);
 /* Either thread: look movement since the last call, in mouse counts */
 void IOSTouch_TakeLook(float *pfDX, float *pfDY);
+/* Either thread: tilt aiming since the last call, in degrees for the view to
+   turn (+ left) and tilt (+ up), straight into the player's rotation */
+void IOSTouch_TakeGyro(float *pfYaw, float *pfPitch);
 
 /* Provided by the HUD (Entities Common/HUD.cpp), main thread */
 void IOS_GetHudState(IOSTouchHud *pHud);
