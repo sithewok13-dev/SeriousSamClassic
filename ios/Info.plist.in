@@ -71,5 +71,10 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<!-- tilt aiming reads the gyro (CoreMotion device motion), which needs no
+	     permission today; this is what iOS would show if it ever starts
+	     asking for one -->
+	<key>NSMotionUsageDescription</key>
+	<string>Turning the device aims, while tilt aiming is on (hold MENU to set it).</string>
 </dict>
 </plist>

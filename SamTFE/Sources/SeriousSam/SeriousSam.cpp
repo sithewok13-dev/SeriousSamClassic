@@ -1311,6 +1311,7 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
       } catch (const char *strError) {
         CPrintF("Cannot save game settings: %s\n", strError);
       }
+      IOSTouch_Hide();
       IOS_WaitForForeground();
     }
     IOS_UpdateTouchControls();
