@@ -383,6 +383,19 @@ static void IOS_UpdateTouchControls(void)
   }
   IOSTouchHud hud;
   IOS_GetHudState(&hud);
+  // the weapon wheel: what the player has, and the HUD's icons it still lacks
+  IOSTouchWeapons wpn;
+  IOS_GetWeapons(&wpn);
+  IOSTouch_SetWeapons(&wpn);
+  if (iMode==IOSTOUCH_GAMEPLAY) {
+    static unsigned char aubIcon[64*64*4];
+    const unsigned int ulWant = IOSTouch_WantedIcons(_pTimer->GetHighPrecisionTimer().GetSeconds());
+    for (int w=1; w<IOSTOUCH_WPN_MAX; w++) {
+      if (!(ulWant&(1u<<w))) continue;
+      int iW = 0, iH = 0;
+      if (IOS_GetWeaponIcon(w, aubIcon, sizeof(aubIcon), &iW, &iH)) IOSTouch_SetWeaponIcon(w, aubIcon, iW, iH);
+    }
+  }
   // the frames drawn so far (one per SwapBuffers), for the FPS readout
   const int iRequests = IOSTouch_Update(_hwndMain, iMode, &hud, (unsigned int)_pGfx->GetFrameNumber());
 
@@ -432,7 +445,12 @@ static void UpdatePauseState(void)
 {
   BOOL bShouldPause = (_gmRunningGameMode==GM_SINGLE_PLAYER) && (bMenuActive || 
                        _pGame->gm_csConsoleState ==CS_ON || _pGame->gm_csConsoleState ==CS_TURNINGON || _pGame->gm_csConsoleState ==CS_TURNINGOFF ||
+#ifdef PLATFORM_IOS
+                       _pGame->gm_csComputerState==CS_ON || _pGame->gm_csComputerState==CS_TURNINGON || _pGame->gm_csComputerState==CS_TURNINGOFF
+                       || IOSTouch_HoldsGame());  // the touch controls' weapon wheel is open
+#else
                        _pGame->gm_csComputerState==CS_ON || _pGame->gm_csComputerState==CS_TURNINGON || _pGame->gm_csComputerState==CS_TURNINGOFF);
+#endif
   _pNetwork->SetLocalPause(bShouldPause);
 }
 

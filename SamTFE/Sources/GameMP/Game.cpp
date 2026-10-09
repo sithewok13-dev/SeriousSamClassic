@@ -770,6 +770,16 @@ FLOAT CControls::GetAxisValue(INDEX iAxis)
 #define IOS_PLACT_WEAPON_PREV (1L<<3)
 #define IOS_PLACT_USE         (1L<<5)
 #define IOS_PLACT_COMPUTER    (1L<<6)
+// the select-weapon field (Player.es PLACT_SELECT_WEAPON_*: bits 14-18, the
+// First Encounter's 9-13), and the value that names one weapon
+// (PlayerWeapons.es)
+#ifdef FIRST_ENCOUNTER
+#define IOS_PLACT_SELECT_WEAPON_SHIFT 9
+#else
+#define IOS_PLACT_SELECT_WEAPON_SHIFT 14
+#endif
+#define IOS_PLACT_SELECT_WEAPON_MASK  (0x1FL<<IOS_PLACT_SELECT_WEAPON_SHIFT)
+#define IOS_SELECT_WEAPON_DIRECT      16
 #ifdef FIRST_ENCOUNTER
 #define IOS_PLACT_USE_HELD    0
 #define IOS_PLACT_SNIPER_USE  0
@@ -871,6 +881,12 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
   // and its buttons, whatever keys are bound
   if (!bPreScan && ctl_iCurrentPlayerLocal==0) {
     paAction.pa_ulButtons |= IOS_TouchButtonActions(tiTouch.ulButtons);
+    // the weapon wheel's pick: that weapon, in the select field (a number, so
+    // it replaces a weapon key's value in this tick)
+    if (tiTouch.iSelectWeapon>=1 && tiTouch.iSelectWeapon<=16) {
+      paAction.pa_ulButtons = (paAction.pa_ulButtons&~IOS_PLACT_SELECT_WEAPON_MASK)
+                            | ((ULONG)(IOS_SELECT_WEAPON_DIRECT-1+tiTouch.iSelectWeapon)<<IOS_PLACT_SELECT_WEAPON_SHIFT);
+    }
   }
 #endif
 }
@@ -2793,7 +2809,11 @@ void CGame::GameRedrawView( CDrawPort *pdpDrawPort, ULONG ulFlags)
         strIndicator = TRANS("Trying to stabilize connection...");
       } else if (_pNetwork->IsGameFinished()) {
         strIndicator = TRANS("Game finished");
+#ifdef PLATFORM_IOS
+      } else if (_pNetwork->IsPaused() || (_pNetwork->GetLocalPause() && !IOSTouch_HoldsGame())) {
+#else
       } else if (_pNetwork->IsPaused() || _pNetwork->GetLocalPause()) {
+#endif
         strIndicator = TRANS("Paused");
       } else if (_tvMenuQuickSave.tv_llValue!=0 && 
         (_pTimer->GetHighPrecisionTimer()-_tvMenuQuickSave).GetSeconds()<3) {

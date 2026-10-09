@@ -138,6 +138,13 @@ enum WeaponType {
   */
 
 #define MAX_WEAPONS 30
+#ifdef PLATFORM_IOS
+// the iOS touch controls' weapon wheel: one weapon by its number, as IOS_SELECT_WEAPON_DIRECT-1+weapon in the
+// select-weapon field (GameMP/Game.cpp); no weapon key sends 16 or more
+#define IOS_SELECT_WEAPON_DIRECT 16
+#else
+#define IOS_SELECT_WEAPON_DIRECT 0x7FFFFFFF
+#endif
 
 
 // MiniGun specific
@@ -3033,6 +3040,10 @@ functions:
     // if selecting next weapon
     } else if (iSelect==-1) {
       EwtTemp = FindWeaponInDirection(+1);
+
+    // iOS weapon wheel: one weapon by its number
+    } else if (iSelect>=IOS_SELECT_WEAPON_DIRECT) {
+      EwtTemp = (WeaponType)(iSelect-IOS_SELECT_WEAPON_DIRECT+1);
 
     // if selecting directly
     } else {

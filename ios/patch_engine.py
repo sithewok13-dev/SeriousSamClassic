@@ -1391,4 +1391,184 @@ static void HUD_DrawBorder(""", "class CIOSHudFrame {")
   // draw cheat modes
 """, "  _hudIOSDone = _hudIOS;\n")
 
+    # ------------------------------------------------- the weapon wheel
+    # NEXT WPN and PREV WPN, slid or held, open the touch controls' weapon
+    # wheel (ios/IOSTouch.m): one slice per weapon, with the HUD's icons and
+    # counts. The HUD tells it what the player has, every frame (not only
+    # while the HUD draws), and hands it each weapon's icon from the game's
+    # data once, between frames.
+    p = src / ("EntitiesMP/Common/HUD.cpp" if game == "SamTSE" else "Entities/Common/HUD.cpp")
+    sub(p, """extern "C" void IOS_GetHudState(IOSTouchHud *pHud)
+{
+  *pHud = _hudIOSDone;
+  pHud->bValid = (_pTimer->GetHighPrecisionTimer().GetSeconds()-_tmIOSHudDone < 0.5);
+}
+#endif
+""", """extern "C" void IOS_GetHudState(IOSTouchHud *pHud)
+{
+  *pHud = _hudIOSDone;
+  pHud->bValid = (_pTimer->GetHighPrecisionTimer().GetSeconds()-_tmIOSHudDone < 0.5);
+}
+
+// The weapon wheel's view of the first player's weapons (every frame, main
+// thread, whether or not the HUD draws): owned, what the game would switch to
+// (owned and HasAmmo: what SelectWeaponChange accepts -- the double shotgun
+// needs two shells), the HUD's own counts, and whether a pick would be taken
+// now (alive, no cutscene camera, not walked by an action marker: otherwise
+// the player's actions never reach the weapons)
+static void FillWeaponAmmoTables(void);
+extern "C" void IOS_GetWeapons(IOSTouchWeapons *pw)
+{
+  memset(pw, 0, sizeof(*pw));
+  pw->iMap = %(MAP)s;
+  CPlayer *pl = (CPlayer *)CEntity::GetPlayerEntity(0);
+  if (pl==NULL || pl->m_penWeapons==NULL) return;
+  CPlayerWeapons *penOld = _penWeapons;
+  _penWeapons = (CPlayerWeapons *)&*pl->m_penWeapons;
+  FillWeaponAmmoTables();  // the HUD's own counts (DrawHUD fills them again every frame anyway)
+  pw->bValid = TRUE;
+  pw->bCanSelect = (pl->GetFlags()&ENF_ALIVE) && pl->m_penCamera==NULL && pl->m_penActionMarker==NULL;
+  pw->iWanted = _penWeapons->m_iWantedWeapon;
+  pw->bInfiniteAmmo = GetSP()->sp_bInfiniteAmmo;
+  for (INDEX w=1; w<IOSTOUCH_WPN_MAX && w<18; w++) {
+    pw->aiAmmo[w] = pw->aiMaxAmmo[w] = -1;
+    if (_awiWeapons[w].wi_wtWeapon==WEAPON_NONE) continue;
+    const BOOL bOwned = (_penWeapons->m_iAvailableWeapons&(1<<(w-1)))!=0;
+    if (bOwned) pw->ulOwned |= 1u<<w;
+    if (bOwned && _penWeapons->HasAmmo((WeaponType)w)) pw->ulReady |= 1u<<w;
+    if (_awiWeapons[w].wi_paiAmmo!=NULL) {
+      pw->aiAmmo[w] = _awiWeapons[w].wi_paiAmmo->ai_iAmmoAmmount;
+      pw->aiMaxAmmo[w] = _awiWeapons[w].wi_paiAmmo->ai_iMaxAmmoAmmount;
+    }
+  }
+  _penWeapons = penOld;
+}
+
+// A weapon's HUD icon for the weapon wheel: its texture's first frame (R G B
+// A, not premultiplied). Uploading it freed the texels (it isn't TEX_STATIC):
+// they are loaded again from the game's data and kept. Main thread, between
+// frames (the main loop asks), never inside a touch callback. The two colts'
+// is the colt's.
+extern "C" int IOS_GetWeaponIcon(int iWeapon, unsigned char *pubRGBA, int ctMaxBytes, int *piWidth, int *piHeight)
+{
+  if (iWeapon<1 || iWeapon>=18 || _awiWeapons[iWeapon].wi_ptoWeapon==NULL) return 0;
+  CTextureData *ptd = (CTextureData *)_awiWeapons[iWeapon].wi_ptoWeapon->GetData();
+  if (ptd==NULL) return 0;                               // InitHUD hasn't run yet
+  if (ptd->td_pulFrames==NULL) ptd->Force(TEX_STATIC);   // reloads it, and keeps it from now on
+  if (ptd->td_pulFrames==NULL) return 0;
+  const PIX pixW = ptd->GetPixWidth(), pixH = ptd->GetPixHeight();
+  if (pixW<=0 || pixH<=0 || pixW*pixH*4>ctMaxBytes) return 0;
+  memcpy(pubRGBA, ptd->td_pulFrames, pixW*pixH*4);
+  *piWidth = pixW;
+  *piHeight = pixH;
+  return 1;
+}
+#endif
+""" % {"MAP": "IOSTOUCH_WHEEL_TSE" if game == "SamTSE" else "IOSTOUCH_WHEEL_TFE"}, "extern \"C\" void IOS_GetWeapons(IOSTouchWeapons *pw)")
+    # While the wheel is open the game holds still, so the HUD's weapon row
+    # (up for a while after a weapon change) would stand frozen in the
+    # wheel's cancel gap: not drawn then. It comes up for its time after a pick.
+    sub(p, "  if( (_tmNow - _penWeapons->m_tmWeaponChangeRequired) < hud_tmWeaponsOnScreen) {\n",
+"""#ifdef PLATFORM_IOS
+  if( (_tmNow - _penWeapons->m_tmWeaponChangeRequired) < hud_tmWeaponsOnScreen && !IOSTouch_HoldsGame()) {
+#else
+  if( (_tmNow - _penWeapons->m_tmWeaponChangeRequired) < hud_tmWeaponsOnScreen) {
+#endif
+""", "hud_tmWeaponsOnScreen && !IOSTouch_HoldsGame()) {")
+
+    # The wheel's pick reaches the weapons as the player action's select-weapon
+    # field, a value no key sends (8 or 9 weapon keys): IOS_SELECT_WEAPON_DIRECT
+    # - 1 + the weapon's number, that very weapon -- a key names a group, and
+    # which of its two it gives depends on the weapon in hand. The game's own
+    # test (owned and HasAmmo) then takes it or not. In all three weapon
+    # files: CMake copies PlayerWeapons_old.es (or HD) over PlayerWeapons.es at
+    # configure time. ECC takes no preprocessor lines in function bodies, so
+    # the desktop keeps a branch no value reaches.
+    en = "EntitiesMP" if game == "SamTSE" else "Entities"
+    for f in ("PlayerWeapons.es", "PlayerWeapons_old.es", "PlayerWeaponsHD.es"):
+        p = src / en / f
+        sub(p, "#define MAX_WEAPONS 30\n",
+"""#define MAX_WEAPONS 30
+#ifdef PLATFORM_IOS
+// the iOS touch controls' weapon wheel: one weapon by its number, as IOS_SELECT_WEAPON_DIRECT-1+weapon in the
+// select-weapon field (GameMP/Game.cpp); no weapon key sends 16 or more
+#define IOS_SELECT_WEAPON_DIRECT 16
+#else
+#define IOS_SELECT_WEAPON_DIRECT 0x7FFFFFFF
+#endif
+""", "#define IOS_SELECT_WEAPON_DIRECT 16")
+        sub(p, "\n    // if selecting directly\n    } else {",
+"""
+    // iOS weapon wheel: one weapon by its number
+    } else if (iSelect>=IOS_SELECT_WEAPON_DIRECT) {
+      EwtTemp = (WeaponType)(iSelect-IOS_SELECT_WEAPON_DIRECT+1);
+
+    // if selecting directly
+    } else {""", "} else if (iSelect>=IOS_SELECT_WEAPON_DIRECT) {")
+    assert (src / en / "PlayerWeapons.es").read_bytes() == (src / en / "PlayerWeapons_old.es").read_bytes(), \
+        game + ": PlayerWeapons.es and PlayerWeapons_old.es differ (CMake copies the one over the other)"
+
+    p = src / "GameMP/Game.cpp"
+    sub(p, "#define IOS_PLACT_COMPUTER    (1L<<6)\n",
+"""#define IOS_PLACT_COMPUTER    (1L<<6)
+// the select-weapon field (Player.es PLACT_SELECT_WEAPON_*: bits 14-18, the
+// First Encounter's 9-13), and the value that names one weapon
+// (PlayerWeapons.es)
+#ifdef FIRST_ENCOUNTER
+#define IOS_PLACT_SELECT_WEAPON_SHIFT 9
+#else
+#define IOS_PLACT_SELECT_WEAPON_SHIFT 14
+#endif
+#define IOS_PLACT_SELECT_WEAPON_MASK  (0x1FL<<IOS_PLACT_SELECT_WEAPON_SHIFT)
+#define IOS_SELECT_WEAPON_DIRECT      16
+""", "#define IOS_PLACT_SELECT_WEAPON_SHIFT 9")
+    sub(p, "    paAction.pa_ulButtons |= IOS_TouchButtonActions(tiTouch.ulButtons);\n",
+"""    paAction.pa_ulButtons |= IOS_TouchButtonActions(tiTouch.ulButtons);
+    // the weapon wheel's pick: that weapon, in the select field (a number, so
+    // it replaces a weapon key's value in this tick)
+    if (tiTouch.iSelectWeapon>=1 && tiTouch.iSelectWeapon<=16) {
+      paAction.pa_ulButtons = (paAction.pa_ulButtons&~IOS_PLACT_SELECT_WEAPON_MASK)
+                            | ((ULONG)(IOS_SELECT_WEAPON_DIRECT-1+tiTouch.iSelectWeapon)<<IOS_PLACT_SELECT_WEAPON_SHIFT);
+    }
+""", "tiTouch.iSelectWeapon>=1 && tiTouch.iSelectWeapon<=16")
+    # the wheel holds the game with the local pause, but isn't a pause: no "Paused"
+    sub(p, "      } else if (_pNetwork->IsPaused() || _pNetwork->GetLocalPause()) {\n",
+"""#ifdef PLATFORM_IOS
+      } else if (_pNetwork->IsPaused() || (_pNetwork->GetLocalPause() && !IOSTouch_HoldsGame())) {
+#else
+      } else if (_pNetwork->IsPaused() || _pNetwork->GetLocalPause()) {
+#endif
+""", "(_pNetwork->GetLocalPause() && !IOSTouch_HoldsGame())")
+
+    p = src / "SeriousSam/SeriousSam.cpp"
+    # every frame, before the overlay's update: what the player has, and the
+    # icons the wheel still lacks (at most once a second each), here between
+    # frames -- the reload reads the game's data and touches GL
+    sub(p, "  IOSTouchHud hud;\n  IOS_GetHudState(&hud);\n",
+"""  IOSTouchHud hud;
+  IOS_GetHudState(&hud);
+  // the weapon wheel: what the player has, and the HUD's icons it still lacks
+  IOSTouchWeapons wpn;
+  IOS_GetWeapons(&wpn);
+  IOSTouch_SetWeapons(&wpn);
+  if (iMode==IOSTOUCH_GAMEPLAY) {
+    static unsigned char aubIcon[64*64*4];
+    const unsigned int ulWant = IOSTouch_WantedIcons(_pTimer->GetHighPrecisionTimer().GetSeconds());
+    for (int w=1; w<IOSTOUCH_WPN_MAX; w++) {
+      if (!(ulWant&(1u<<w))) continue;
+      int iW = 0, iH = 0;
+      if (IOS_GetWeaponIcon(w, aubIcon, sizeof(aubIcon), &iW, &iH)) IOSTouch_SetWeaponIcon(w, aubIcon, iW, iH);
+    }
+  }
+""", "IOSTouch_SetWeapons(&wpn);")
+    # the open wheel holds a single-player game, as the menu and the console do
+    sub(p, "                       _pGame->gm_csComputerState==CS_ON || _pGame->gm_csComputerState==CS_TURNINGON || _pGame->gm_csComputerState==CS_TURNINGOFF);\n",
+"""#ifdef PLATFORM_IOS
+                       _pGame->gm_csComputerState==CS_ON || _pGame->gm_csComputerState==CS_TURNINGON || _pGame->gm_csComputerState==CS_TURNINGOFF
+                       || IOSTouch_HoldsGame());  // the touch controls' weapon wheel is open
+#else
+                       _pGame->gm_csComputerState==CS_ON || _pGame->gm_csComputerState==CS_TURNINGON || _pGame->gm_csComputerState==CS_TURNINGOFF);
+#endif
+""", "|| IOSTouch_HoldsGame());  // the touch controls' weapon wheel is open")
+
     print(game, "patched")

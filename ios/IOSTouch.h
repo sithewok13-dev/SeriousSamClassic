@@ -44,6 +44,30 @@
        also looks, except BOMB, which goes off as the finger lifts on it (so
        a look swipe can't waste a bomb). Top left: NEXT and PREV weapon,
        below the score. Top right: QUICK SAVE, QUICK LOAD and MENU.
+     - NEXT WPN and PREV WPN: a quick tap is the next / previous weapon, as
+       the finger lifts (with the sniper scope on, the game zooms instead, as
+       on PC). Slid 10 pt off either, the weapon wheel opens at once: keep
+       sliding toward a weapon and lift to take it, or slide into the gap at
+       the bottom (or back to where the finger went down) and lift to change
+       nothing; a light haptic tick marks each new slice. Held still 0.3 s
+       (a ring fills round the button) the wheel opens and stays open to
+       tap: a weapon takes it, anywhere else (the middle, the gap, off the
+       wheel, a button) closes it. If iOS takes the touches away while it is
+       open (a call, a system gesture), it stays open to tap, the game still
+       held, until a tap. Both buttons open the same wheel: one
+       slice per weapon, in the order NEXT goes through them, each with the
+       HUD's own icon (taken from the game's data as it runs) and its ammo
+       count; the weapon in hand edged in white, one out of ammo greyed with
+       its count (the double shotgun needs two shells), one not found yet a
+       faint silhouette. The middle names the weapon pointed at. While the
+       wheel is open the game holds still (the local pause of the menu and
+       the console: game sounds pause, the level's music plays on, no
+       "Paused"), every other touch is let go and ignored, tilt aiming
+       doesn't turn the view, and the HUD's weapon row isn't drawn; it comes
+       back for its 3 s after a pick. The wheel never opens while the player
+       couldn't change weapon anyway (dead, a cutscene's camera, or walked by
+       the game), and closes if that happens while it is open. The serious
+       bomb stays on BOMB.
      - the HUD's messages box (an envelope and how many unread, blinking
        while there are some): a tap marks every message read, so it stops
        blinking; with nothing unread it stays, dim and still (on PC it goes
@@ -101,7 +125,10 @@
    Threads: IOSTouch_Update and IOSTouch_Hide run on the main thread,
    IOSTouch_ReadInput on the game's input thread (SDLTimer, once per game
    tick), IOSTouch_TakeLook and IOSTouch_TakeGyro on either; the motion
-   samples come in on a queue of their own. */
+   samples come in on a queue of their own. The weapon wheel's calls
+   (IOS_GetWeapons, IOS_GetWeaponIcon, IOSTouch_SetWeapons,
+   IOSTouch_WantedIcons, IOSTouch_SetWeaponIcon, IOSTouch_HoldsGame) are
+   the main thread's, between frames, where the game's entities tick too. */
 
 #ifndef SE_INCL_IOSTOUCH_H
 #define SE_INCL_IOSTOUCH_H
@@ -160,7 +187,27 @@ typedef struct IOSTouchInput {
   float fMoveX;           /* move stick: -1..1, right is + */
   float fMoveY;           /* -1..1, forward is + */
   unsigned int ulButtons; /* IOSTOUCH_FIRE... held (or a quick tap) for this tick */
+  int iSelectWeapon;      /* 0 none, else a weapon number for the game's select field (the wheel's pick):
+                             reported for two ticks, then 0 for at least one, never in a tick with
+                             NEXT/PREV or the tick after one */
 } IOSTouchInput;
+
+/* The weapon wheel: what the player has, as the game tells it every frame
+   (IOS_GetWeapons, before IOSTouch_Update). Weapon numbers are the game's
+   WeaponType, the HUD's _awiWeapons[] index. */
+#define IOSTOUCH_WPN_MAX 17           /* weapon numbers 0..16 (the First Encounter's cannon is 16) */
+enum { IOSTOUCH_WHEEL_TSE = 0, IOSTOUCH_WHEEL_TFE = 1 };
+typedef struct IOSTouchWeapons {
+  int bValid;            /* player 0 and its weapons exist */
+  int bCanSelect;        /* alive, no cutscene camera, not walked by the game: it would take a pick now */
+  int iMap;              /* IOSTOUCH_WHEEL_TSE / _TFE: which game's wheel */
+  int iWanted;           /* the weapon in hand, or being switched to (m_iWantedWeapon) */
+  unsigned int ulOwned;  /* bit w: weapon w owned (only the wheel's own weapons are looked at) */
+  unsigned int ulReady;  /* bit w: owned and it has ammo for it -- what the game would switch to */
+  int bInfiniteAmmo;     /* no counts shown */
+  int aiAmmo[IOSTOUCH_WPN_MAX];     /* the HUD's ammo count for weapon w, -1: none to show */
+  int aiMaxAmmo[IOSTOUCH_WPN_MAX];
+} IOSTouchWeapons;
 
 /* Main thread, once per frame: shows or hides the overlay for iMode, follows
    the SDL window (an SDL_Window *) and lays out around the HUD.
@@ -187,8 +234,29 @@ void IOSTouch_TakeLook(float *pfDX, float *pfDY);
    turn (+ left) and tilt (+ up), straight into the player's rotation */
 void IOSTouch_TakeGyro(float *pfYaw, float *pfPitch);
 
+/* Main thread, every frame before IOSTouch_Update: what the player has, for
+   the weapon wheel. A wheel open while the game couldn't take a pick (!bValid
+   or !bCanSelect) closes, picking nothing. */
+void IOSTouch_SetWeapons(const IOSTouchWeapons *pw);
+/* Main thread: the weapons (bit w) whose HUD icon the wheel still lacks and
+   hasn't asked for within the last second (it stamps them asked), only while
+   a game is being played; IOSTouch_SetWeaponIcon hands one over (RGBA, not
+   premultiplied, at most 64 x 64; copied; 0 x 0: it gives up on that one and
+   shows its name instead). Kept for the process. */
+unsigned int IOSTouch_WantedIcons(double tNow);
+void IOSTouch_SetWeaponIcon(int iWeapon, const unsigned char *pubRGBA, int iWidth, int iHeight);
+/* Main thread: whether the weapon wheel is open in a game being played: the
+   game holds still (the local pause), draws no "Paused" and no HUD weapon row */
+int IOSTouch_HoldsGame(void);
+
 /* Provided by the HUD (Entities Common/HUD.cpp), main thread */
 void IOS_GetHudState(IOSTouchHud *pHud);
+/* ...the player's weapons, every frame */
+void IOS_GetWeapons(IOSTouchWeapons *pw);
+/* ...a weapon's HUD icon: its texture's first frame (RGBA), reloaded from the
+   game's data if the upload freed it; 0 if there is none (yet) or it doesn't
+   fit ctMaxBytes */
+int IOS_GetWeaponIcon(int iWeapon, unsigned char *pubRGBA, int ctMaxBytes, int *piWidth, int *piHeight);
 /* Provided by NETRICSA (GameMP/Computer.cpp), main thread: marks every
    message of the first local player read (IOSTOUCH_REQ_READMESSAGES) */
 void IOS_MarkAllMessagesRead(void);

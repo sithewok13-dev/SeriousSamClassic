@@ -477,6 +477,60 @@ extern "C" void IOS_GetHudState(IOSTouchHud *pHud)
   *pHud = _hudIOSDone;
   pHud->bValid = (_pTimer->GetHighPrecisionTimer().GetSeconds()-_tmIOSHudDone < 0.5);
 }
+
+// The weapon wheel's view of the first player's weapons (every frame, main
+// thread, whether or not the HUD draws): owned, what the game would switch to
+// (owned and HasAmmo: what SelectWeaponChange accepts -- the double shotgun
+// needs two shells), the HUD's own counts, and whether a pick would be taken
+// now (alive, no cutscene camera, not walked by an action marker: otherwise
+// the player's actions never reach the weapons)
+static void FillWeaponAmmoTables(void);
+extern "C" void IOS_GetWeapons(IOSTouchWeapons *pw)
+{
+  memset(pw, 0, sizeof(*pw));
+  pw->iMap = IOSTOUCH_WHEEL_TSE;
+  CPlayer *pl = (CPlayer *)CEntity::GetPlayerEntity(0);
+  if (pl==NULL || pl->m_penWeapons==NULL) return;
+  CPlayerWeapons *penOld = _penWeapons;
+  _penWeapons = (CPlayerWeapons *)&*pl->m_penWeapons;
+  FillWeaponAmmoTables();  // the HUD's own counts (DrawHUD fills them again every frame anyway)
+  pw->bValid = TRUE;
+  pw->bCanSelect = (pl->GetFlags()&ENF_ALIVE) && pl->m_penCamera==NULL && pl->m_penActionMarker==NULL;
+  pw->iWanted = _penWeapons->m_iWantedWeapon;
+  pw->bInfiniteAmmo = GetSP()->sp_bInfiniteAmmo;
+  for (INDEX w=1; w<IOSTOUCH_WPN_MAX && w<18; w++) {
+    pw->aiAmmo[w] = pw->aiMaxAmmo[w] = -1;
+    if (_awiWeapons[w].wi_wtWeapon==WEAPON_NONE) continue;
+    const BOOL bOwned = (_penWeapons->m_iAvailableWeapons&(1<<(w-1)))!=0;
+    if (bOwned) pw->ulOwned |= 1u<<w;
+    if (bOwned && _penWeapons->HasAmmo((WeaponType)w)) pw->ulReady |= 1u<<w;
+    if (_awiWeapons[w].wi_paiAmmo!=NULL) {
+      pw->aiAmmo[w] = _awiWeapons[w].wi_paiAmmo->ai_iAmmoAmmount;
+      pw->aiMaxAmmo[w] = _awiWeapons[w].wi_paiAmmo->ai_iMaxAmmoAmmount;
+    }
+  }
+  _penWeapons = penOld;
+}
+
+// A weapon's HUD icon for the weapon wheel: its texture's first frame (R G B
+// A, not premultiplied). Uploading it freed the texels (it isn't TEX_STATIC):
+// they are loaded again from the game's data and kept. Main thread, between
+// frames (the main loop asks), never inside a touch callback. The two colts'
+// is the colt's.
+extern "C" int IOS_GetWeaponIcon(int iWeapon, unsigned char *pubRGBA, int ctMaxBytes, int *piWidth, int *piHeight)
+{
+  if (iWeapon<1 || iWeapon>=18 || _awiWeapons[iWeapon].wi_ptoWeapon==NULL) return 0;
+  CTextureData *ptd = (CTextureData *)_awiWeapons[iWeapon].wi_ptoWeapon->GetData();
+  if (ptd==NULL) return 0;                               // InitHUD hasn't run yet
+  if (ptd->td_pulFrames==NULL) ptd->Force(TEX_STATIC);   // reloads it, and keeps it from now on
+  if (ptd->td_pulFrames==NULL) return 0;
+  const PIX pixW = ptd->GetPixWidth(), pixH = ptd->GetPixHeight();
+  if (pixW<=0 || pixH<=0 || pixW*pixH*4>ctMaxBytes) return 0;
+  memcpy(pubRGBA, ptd->td_pulFrames, pixW*pixH*4);
+  *piWidth = pixW;
+  *piHeight = pixH;
+  return 1;
+}
 #endif
 
 #ifdef PLATFORM_IOS
@@ -1230,7 +1284,11 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
   // if weapon change is in progress
   _fCustomScaling = hud_fScaling;
   hud_tmWeaponsOnScreen = Clamp( hud_tmWeaponsOnScreen, 0.0f, 10.0f);   
+#ifdef PLATFORM_IOS
+  if( (_tmNow - _penWeapons->m_tmWeaponChangeRequired) < hud_tmWeaponsOnScreen && !IOSTouch_HoldsGame()) {
+#else
   if( (_tmNow - _penWeapons->m_tmWeaponChangeRequired) < hud_tmWeaponsOnScreen) {
+#endif
     // determine number of weapons that player has
     INDEX ctWeapons = 0;
     for( i=WEAPON_NONE+1; i<WEAPON_LAST; i++) {

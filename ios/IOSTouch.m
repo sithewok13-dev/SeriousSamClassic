@@ -5,7 +5,9 @@
    layout, the state shared with the game's thread, and what each touch does
    (the stick, looking, the buttons, the QUICK SAVE, QUICK LOAD and MENU
    holds, MENU's tray, the unread messages box's tap and hold, the FPS
-   count, tilt aiming). The view below only hands UIKit's touches and
+   count, tilt aiming, NEXT WPN's and PREV WPN's taps, slides and holds and
+   the weapon wheel they open: its slices, what it picks, its layout and its
+   icons' tints). The view below only hands UIKit's touches and
    CoreMotion's samples to it and shows its state, so the Linux test drives
    this very code. */
 
@@ -44,6 +46,31 @@
 // save over the quicksave (the one QUICK LOAD loads) or throw away progress
 #define IOSTOUCH_QUICKSAVE_HOLD 0.3
 #define IOSTOUCH_QUICKLOAD_HOLD 0.3
+// NEXT WPN and PREV WPN each take three gestures (as Jedi Knight's FORCE
+// WHEEL and NEXT WPN). A quick tap (lifted sooner than IOSTOUCH_WHEEL_HOLD by
+// the touch's own clock, never IOSTOUCH_WHEEL_OPEN_SLIDE from where it went
+// down) is the next / previous weapon, as it lifts. Sliding that far opens
+// the weapon wheel at once, to slide to a slice; held still for
+// IOSTOUCH_WHEEL_HOLD (known as QUICK SAVE's hold is) it opens to tap one.
+// Sliding to pick is measured from where the thumb went down: it points
+// nowhere until IOSTOUCH_WHEEL_DEAD away, the point it is measured from
+// trails at most IOSTOUCH_WHEEL_LEASH behind the thumb, and a slice stays
+// picked until the thumb points IOSTOUCH_WHEEL_HYST degrees past its edge; on
+// the wheel itself the slice under the thumb is picked. The wheel's outer
+// radius is at most IOSTOUCH_WHEEL_R1_MAX, its hole IOSTOUCH_WHEEL_R0_FRAC of
+// that; the slice pointed at pops out IOSTOUCH_WHEEL_POP. The name in the
+// middle keeps IOSTOUCH_WHEEL_NEEDLE_CLEAR inside the hole's edge, clear of
+// the needle that shows which way the thumb points.
+#define IOSTOUCH_WHEEL_OPEN_SLIDE 10.0
+#define IOSTOUCH_WHEEL_HOLD IOSTOUCH_QUICKSAVE_HOLD
+#define IOSTOUCH_WHEEL_DEAD 14.0
+#define IOSTOUCH_WHEEL_LEASH 60.0
+#define IOSTOUCH_WHEEL_HYST 4.0
+#define IOSTOUCH_WHEEL_POP 10.0
+#define IOSTOUCH_WHEEL_R1_MAX 168.0
+#define IOSTOUCH_WHEEL_R0_FRAC 0.37
+#define IOSTOUCH_WHEEL_NEEDLE_CLEAR 12.0
+#define IOSTOUCH_WHEEL_CANCEL (-2) // the "slice" of the gap at the bottom
 // MENU held this long opens its tray (tilt aiming's sensitivity and mode,
 // FPS, the keyboard); a tap opens the menu as it lifts. The tray's buttons
 // are IOSTOUCH_TRAY_STEP apart in a row.
@@ -117,6 +144,7 @@ enum {
   KIND_FPS,      // (MENU's tray) shows or hides the FPS readout, when the touch lifts on it
   KIND_GYRO,     // (MENU's tray) the next tilt aiming mode, when the touch lifts on it
   KIND_GYROSENS, // (MENU's tray) the next tilt aiming sensitivity, when the touch lifts on it
+  KIND_WHEEL,    // NEXT WPN, PREV WPN: a tap presses its game button once as it lifts; a slide or a hold opens the weapon wheel
 };
 
 // which modes a button shows in
@@ -142,7 +170,7 @@ typedef struct {
 // thumb that lands on one while aiming keeps aiming -- except BOMB, which
 // goes off as the finger lifts on it (bombs are few: a look swipe that
 // starts on it mustn't use one up). Top left, below the
-// score: next and previous weapon. Top right: quick save and quick load
+// score: next and previous weapon (a tap; slid or held, the weapon wheel). Top right: quick save and quick load
 // (each a short hold) and the menu. Holding MENU opens a tray just
 // under it: tilt aiming's sensitivity and mode (SENS, GYRO), FPS, which
 // shows or hides a frame rate readout by QUICK SAVE, and the keyboard, for
@@ -162,8 +190,8 @@ static IOSTouchButton _aButtons[] = {
   [BTN_USE]       = { "USE",         KIND_HOLD,     IOSTOUCH_USE,           29.0, 1, SHOW_PLAY },
   [BTN_JUMP]      = { "JUMP",        KIND_HOLD,     IOSTOUCH_JUMP,          31.0, 1, SHOW_PLAY },
   [BTN_BOMB]      = { "BOMB",        KIND_PRESS,    IOSTOUCH_BOMB,          30.0, 0, SHOW_PLAY },
-  [BTN_NEXTWPN]   = { "NEXT\nWPN",   KIND_HOLD,     IOSTOUCH_NEXTWEAPON,    22.0, 0, SHOW_PLAY },
-  [BTN_PREVWPN]   = { "PREV\nWPN",   KIND_HOLD,     IOSTOUCH_PREVWEAPON,    22.0, 0, SHOW_PLAY },
+  [BTN_NEXTWPN]   = { "NEXT\nWPN",   KIND_WHEEL,    IOSTOUCH_NEXTWEAPON,    22.0, 0, SHOW_PLAY },
+  [BTN_PREVWPN]   = { "PREV\nWPN",   KIND_WHEEL,    IOSTOUCH_PREVWEAPON,    22.0, 0, SHOW_PLAY },
   [BTN_QUICKSAVE] = { "QUICK\nSAVE", KIND_HOLDSAVE, IOSTOUCH_REQ_QUICKSAVE, 22.0, 0, SHOW_PLAY },
   [BTN_QUICKLOAD] = { "QUICK\nLOAD", KIND_HOLDLOAD, IOSTOUCH_REQ_QUICKLOAD, 22.0, 0, SHOW_PLAY },
   [BTN_MENU]      = { "MENU",        KIND_MENU,     IOSTOUCH_REQ_MENU,      22.0, 0, SHOW_ALL },
@@ -192,6 +220,9 @@ static unsigned char _aPulseGap[IOSTOUCH_NUMBUTTONS];
 static float _fMoveX = 0.0f, _fMoveY = 0.0f;
 static float _fLookX = 0.0f, _fLookY = 0.0f;
 static float _fGyroYaw = 0.0f, _fGyroPitch = 0.0f; // tilt aiming: degrees for the view to turn (+ left) and tilt (+ up)
+// The weapon wheel's pick (a weapon number) waiting to be read, and the one
+// being read now: reads left, its value, and the read after it with none
+static int _iPickPending = 0, _iPickReads = 0, _iPickNow = 0, _bPickGap = 0;
 
 // Sets the game buttons held by touches. ulLifted: buttons whose touch just
 // lifted (not cancelled) -- if no tick saw them held, it was a tap quicker
@@ -219,6 +250,32 @@ static void IOSTouch_ResetShared(int bReading)
   memset(_aPulseReads, 0, sizeof(_aPulseReads));
   memset(_aPulseGap, 0, sizeof(_aPulseGap));
   _fMoveX = _fMoveY = 0.0f;
+  _fLookX = _fLookY = 0.0f;
+  _fGyroYaw = _fGyroPitch = 0.0f;
+  _iPickPending = _iPickReads = _iPickNow = _bPickGap = 0;
+  os_unfair_lock_unlock(&_lock);
+}
+
+// The weapon wheel picked a weapon: the game gets it in the select field of
+// its next free read (IOSTouch_ReadInput); a later pick replaces one still
+// waiting
+static void IOSTouch_QueuePick(int iWeapon)
+{
+  os_unfair_lock_lock(&_lock);
+  _iPickPending = iWeapon;
+  os_unfair_lock_unlock(&_lock);
+}
+
+// The weapon wheel opened: a NEXT/PREV tap the game hasn't started reading
+// (a slow frame) would go off after the wheel closes and undo its pick, so it
+// is dropped (one already being read finishes); look and tilt aiming taken
+// before the opening are dropped too, so nothing jumps once the game goes on
+static void IOSTouch_SharedWheelOpened(void)
+{
+  os_unfair_lock_lock(&_lock);
+  for (int i = 0; i < IOSTOUCH_NUMBUTTONS; i++) {
+    if ((1u << i) & (IOSTOUCH_NEXTWEAPON | IOSTOUCH_PREVWEAPON)) _aPulseQueue[i] = 0;
+  }
   _fLookX = _fLookY = 0.0f;
   _fGyroYaw = _fGyroPitch = 0.0f;
   os_unfair_lock_unlock(&_lock);
@@ -309,6 +366,20 @@ static int IOSTouch_BoxIsClear(double cx, double cy, double hw, double hh, const
 // box's too.
 static IOSTouchRect _rMessages;
 static IOSTouchRect _rMessagesNow;
+
+// The weapon wheel (points): round the middle of the safe area, 4 pt down,
+// as big as fits with room for a slice to pop out (as Jedi Knight's)
+static double _fWheelCX = 0.0, _fWheelCY = 0.0, _fWheelR0 = 0.0, _fWheelR1 = 0.0;
+static void IOSTouch_WheelGeometry(double W, double H, double inLeft, double inTop, double inRight, double inBottom,
+                                   double *pfCX, double *pfCY, double *pfR0, double *pfR1)
+{
+  const double left = fmax(inLeft, 8.0), right = W - fmax(inRight, 8.0);
+  const double top = fmax(inTop, 8.0), bottom = H - fmax(inBottom, 8.0);
+  *pfCX = (left + right) * 0.5;
+  *pfCY = (top + bottom) * 0.5 + 4.0;
+  *pfR1 = fmin(IOSTOUCH_WHEEL_R1_MAX, (bottom - top) * 0.5 - IOSTOUCH_WHEEL_POP - 6.0);
+  *pfR0 = round(*pfR1 * IOSTOUCH_WHEEL_R0_FRAC);
+}
 
 // Places every button on a W x H point screen with these safe-area insets,
 // keeping clear of the HUD's score and high score boxes and unread messages
@@ -529,6 +600,9 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
     _aButtons[BTN_RESUME].x = (left + right) * 0.5;
     _aButtons[BTN_RESUME].y = fmax((top + bottom) * 0.5, ft + (H - ft - fb) * 0.4 + 60.0);
   }
+
+  // The weapon wheel, over the middle of the screen
+  IOSTouch_WheelGeometry(W, H, inLeft, inTop, inRight, inBottom, &_fWheelCX, &_fWheelCY, &_fWheelR0, &_fWheelR1);
 }
 
 // A HUD box (fractions of the screen) in points
@@ -596,6 +670,7 @@ typedef enum {
   ROLE_BUTTON,
   ROLE_IGNORED,  // not on a button while only buttons are live, or only closed MENU's tray; ignored until it lifts
   ROLE_MESSAGES, // on the HUD's messages box (a tap: all read; held: NETRICSA)
+  ROLE_WHEEL,    // on the open weapon wheel (or the NEXT/PREV touch that opened it)
 } IOSTouchRole;
 
 typedef struct {
@@ -611,11 +686,25 @@ typedef struct {
   int trayButton;       // MENU, after its tray opened: the tray button under the finger, or -1
   // The messages box: where the finger landed, the box as it was laid out then and where the HUD drew it then
   // (IOSTouch_StillOnMessages)
+  // (also NEXT WPN, PREV WPN: where it went down, a slide's distance and aim being measured from there)
   double xDown, yDown;
   IOSTouchRect rLaidDown, rNowDown;
+  // NEXT WPN, PREV WPN: when it went down by the touch's own clock (UITouch.timestamp: a tap is told from a
+  // hold by it, so a slow frame between the two doesn't make a tap long). bFired: no tap any more (it slid or
+  // held while the wheel couldn't open). On the wheel: the slice picked (an index into the wheel's map,
+  // IOSTOUCH_WHEEL_CANCEL, or -1); whether it is the touch that opened it, and opened it by holding still (it
+  // is open to tap until this slides IOSTOUCH_WHEEL_DEAD), whether it has slid out of the dead zone, where
+  // its slide is measured from and which way it points (degrees, counter-clockwise from pointing right)
+  double tDownTouch;
+  int wheelSlot;
+  int bWheelOpener, bWheelHeld, bArmed;
+  double wheelOriginX, wheelOriginY;
+  double wheelAim;
+  unsigned int uSeq;    // the order the touches went down in (IOSTouch_WheelPointed: the newest finger)
 } IOSTouchSlot;
 
 static IOSTouchSlot _aSlots[IOSTOUCH_MAX_TOUCHES];
+static unsigned int _uTouchSeq = 0;
 static int _aButtonHeld[IOSTOUCH_NUM_BUTTONS]; // touches on each button
 static int _bStickActive = 0;
 static double _fStickOriginX = 0.0, _fStickOriginY = 0.0; // where the stick's thumb came down
@@ -876,8 +965,949 @@ static void IOSTouch_UseTrayButton(int button)
   if (kind != KIND_GYRO && kind != KIND_GYROSENS) IOSTouch_SetTrayOpen(0);
 }
 
-// A finger came down at (x,y) on a screen W points wide
-static void IOSTouch_TouchBegan(const void *touch, double x, double y, double W, double now)
+// ---------------------------------------------------------------- weapon wheel
+// One slice per weapon of the game, in the order NEXT WPN goes through them
+// (Second Encounter: PlayerWeapons.es's aiWeaponsRemap; First Encounter: its
+// weapons' own order), clockwise from the bottom left, the gap at the bottom
+// to cancel. The weapon numbers are the game's (WeaponType, the HUD's
+// _awiWeapons index). Each slice is tinted by the HUD's ammo type of its
+// weapon: the two shotguns share one, as do the tommygun and the minigun (they
+// share their ammo, and show the same count). The name shows in the middle,
+// on two lines where it doesn't fit one: at its middle space, or after the
+// hyphen given here.
+enum { WCOL_NONE = 0, WCOL_SHELLS, WCOL_BULLETS, WCOL_ROCKETS, WCOL_GRENADES, WCOL_NAPALM, WCOL_SNIPER,
+       WCOL_ELECTRICITY, WCOL_CANNONBALLS, WCOL_COUNT };
+static const unsigned char _aubWheelColours[WCOL_COUNT][3] = {
+  { 255, 214, 120 }, { 255, 160, 80 }, { 120, 200, 255 }, { 255, 105, 90 }, { 110, 220, 170 },
+  { 255, 190, 60 }, { 190, 150, 255 }, { 90, 230, 230 }, { 200, 200, 215 },
+};
+typedef struct {
+  int iWeapon;
+  int iColour;
+  const char *strName;
+  const char *strName2; // on two lines ("\n"), when it has no space to break at
+} IOSTouchWheelSlot;
+typedef struct {
+  const IOSTouchWheelSlot *aSlots;
+  int ctSlots;
+  double fSliceDeg; // each slice's width; the gap at the bottom is what is left
+} IOSTouchWheelMap;
+#define IOSTOUCH_WHEEL_MAX 14
+static const IOSTouchWheelSlot _aWheelTSE[] = {
+  {  1, WCOL_NONE,        "KNIFE",            NULL }, { 10, WCOL_NONE,        "CHAINSAW",         NULL },
+  {  2, WCOL_NONE,        "COLT",             NULL }, {  3, WCOL_NONE,        "TWO COLTS",        NULL },
+  {  4, WCOL_SHELLS,      "SHOTGUN",          NULL }, {  5, WCOL_SHELLS,      "DOUBLE SHOTGUN",   NULL },
+  {  6, WCOL_BULLETS,     "TOMMYGUN",         NULL }, {  7, WCOL_BULLETS,     "MINIGUN",          NULL },
+  {  8, WCOL_ROCKETS,     "ROCKET LAUNCHER",  NULL }, {  9, WCOL_GRENADES,    "GRENADE LAUNCHER", NULL },
+  { 11, WCOL_NAPALM,      "FLAMETHROWER",     "FLAME-\nTHROWER" }, { 13, WCOL_SNIPER, "SNIPER RIFLE", NULL },
+  { 12, WCOL_ELECTRICITY, "LASERGUN",         "LASER-\nGUN" },     { 14, WCOL_CANNONBALLS, "CANNON", NULL },
+};
+static const IOSTouchWheelSlot _aWheelTFE[] = {
+  {  1, WCOL_NONE,        "KNIFE",            NULL }, {  2, WCOL_NONE,        "COLT",             NULL },
+  {  3, WCOL_NONE,        "TWO COLTS",        NULL }, {  4, WCOL_SHELLS,      "SHOTGUN",          NULL },
+  {  5, WCOL_SHELLS,      "DOUBLE SHOTGUN",   NULL }, {  6, WCOL_BULLETS,     "TOMMYGUN",         NULL },
+  {  7, WCOL_BULLETS,     "MINIGUN",          NULL }, {  8, WCOL_ROCKETS,     "ROCKET LAUNCHER",  NULL },
+  {  9, WCOL_GRENADES,    "GRENADE LAUNCHER", NULL }, { 14, WCOL_ELECTRICITY, "LASERGUN",         "LASER-\nGUN" },
+  { 16, WCOL_CANNONBALLS, "CANNON",           NULL },
+};
+static const IOSTouchWheelMap _aWheelMaps[2] = {
+  [IOSTOUCH_WHEEL_TSE] = { _aWheelTSE, (int)(sizeof(_aWheelTSE) / sizeof(_aWheelTSE[0])), 23.0 },
+  [IOSTOUCH_WHEEL_TFE] = { _aWheelTFE, (int)(sizeof(_aWheelTFE) / sizeof(_aWheelTFE[0])), 29.0 },
+};
+typedef char IOSTouch_assertWheelSize[(sizeof(_aWheelTSE) / sizeof(_aWheelTSE[0]) <= IOSTOUCH_WHEEL_MAX
+                                       && sizeof(_aWheelTFE) / sizeof(_aWheelTFE[0]) <= IOSTOUCH_WHEEL_MAX) ? 1 : -1];
+
+// A slice's state, from what the game says (never the weapons mask's bits
+// alone: the First Encounter's cheat sets bits of weapons that don't exist)
+enum { WSTATE_READY = 0, WSTATE_NOAMMO, WSTATE_NOTFOUND };
+
+// What the game said last (IOSTouch_SetWeapons); the wheel: open or not
+// (and whether open to tap a slice), the button that opened it and the map
+// it shows; the NEXT/PREV hold rings; what was pointed at last and the haptic
+// ticks the view still has to give (one each time the thumb moves onto
+// another slice or the gap)
+static IOSTouchWeapons _wpn;
+static int _bWheelOpen = 0, _bWheelTapMode = 0, _iWheelButton = BTN_NEXTWPN, _iWheelMap = IOSTOUCH_WHEEL_TSE;
+static float _afWheelRing[2] = { 0.0f, 0.0f }; // NEXT WPN's, PREV WPN's
+static int _iWheelHot = -1;
+static int _ctWheelTicks = 0;
+
+static int IOSTouch_WheelIsOpen(void)
+{
+  return _bWheelOpen;
+}
+
+int IOSTouch_HoldsGame(void)
+{
+  return _bWheelOpen && _iMode == IOSTOUCH_GAMEPLAY;
+}
+
+// Whether the game would take a pick now: the player there, alive, no
+// cutscene camera, not walked by the game
+static int IOSTouch_WheelCanOpen(void)
+{
+  return _wpn.bValid && _wpn.bCanSelect;
+}
+
+static const IOSTouchWheelMap *IOSTouch_WheelMapOf(int iMap)
+{
+  return &_aWheelMaps[(iMap == IOSTOUCH_WHEEL_TFE) ? IOSTOUCH_WHEEL_TFE : IOSTOUCH_WHEEL_TSE];
+}
+
+// A slice's middle (degrees, counter-clockwise from pointing right): the
+// first one's edge at the gap's left edge, then clockwise
+static double IOSTouch_WheelSlotDeg(const IOSTouchWheelMap *m, int i)
+{
+  const double gap = 360.0 - m->ctSlots * m->fSliceDeg;
+  return 270.0 - gap * 0.5 - m->fSliceDeg * 0.5 - i * m->fSliceDeg;
+}
+
+static int IOSTouch_WheelSlotStateIn(const IOSTouchWeapons *pw, int iWeapon)
+{
+  if (!(pw->ulOwned & (1u << iWeapon))) return WSTATE_NOTFOUND;
+  if (!(pw->ulReady & (1u << iWeapon))) return WSTATE_NOAMMO;
+  return WSTATE_READY;
+}
+
+static int IOSTouch_WheelSlotState(int i)
+{
+  return IOSTouch_WheelSlotStateIn(&_wpn, IOSTouch_WheelMapOf(_iWheelMap)->aSlots[i].iWeapon);
+}
+
+// The ammo count a slice shows (the HUD's, at most 999), or -1 for none: the
+// knife, chainsaw and colts have none, infinite ammo shows none, nor does a
+// weapon not found yet
+static int IOSTouch_WheelSlotCount(int i)
+{
+  const int w = IOSTouch_WheelMapOf(_iWheelMap)->aSlots[i].iWeapon;
+  if (_wpn.bInfiniteAmmo || IOSTouch_WheelSlotStateIn(&_wpn, w) == WSTATE_NOTFOUND || _wpn.aiAmmo[w] < 0) return -1;
+  return _wpn.aiAmmo[w] > 999 ? 999 : _wpn.aiAmmo[w];
+}
+
+// Whether a slice is picked when lifted on: a weapon the game would switch to
+// -- not the one in hand (picking that again would only change the knife's
+// stance)
+static int IOSTouch_WheelCanPick(int i)
+{
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(_iWheelMap);
+  if (i < 0 || i >= m->ctSlots) return 0;
+  return IOSTouch_WheelSlotState(i) == WSTATE_READY && m->aSlots[i].iWeapon != _wpn.iWanted;
+}
+
+static double IOSTouch_AngleDiff(double a, double b)
+{
+  double d = fmod(a - b, 360.0);
+  if (d > 180.0) d -= 360.0;
+  if (d < -180.0) d += 360.0;
+  return d;
+}
+
+// The slice a direction (degrees) points into, or IOSTOUCH_WHEEL_CANCEL in
+// the gap at the bottom. The slice already picked (cur) holds on
+// IOSTOUCH_WHEEL_HYST past its edges.
+static int IOSTouch_WheelSliceForAngle(double deg, int cur)
+{
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(_iWheelMap);
+  const double half = m->fSliceDeg * 0.5;
+  if (cur >= 0 && cur < m->ctSlots && fabs(IOSTouch_AngleDiff(deg, IOSTouch_WheelSlotDeg(m, cur))) <= half + IOSTOUCH_WHEEL_HYST)
+    return cur;
+  int best = IOSTOUCH_WHEEL_CANCEL;
+  double bestDiff = 0.0;
+  for (int i = 0; i < m->ctSlots; i++) {
+    const double d = fabs(IOSTouch_AngleDiff(deg, IOSTouch_WheelSlotDeg(m, i)));
+    if (d <= half && (best < 0 || d < bestDiff)) {
+      best = i;
+      bestDiff = d;
+    }
+  }
+  return best;
+}
+
+// The slice under (x,y) (cur as above): anywhere on it by its angle, from a
+// little inside the hole's edge out to past a popped-out slice's;
+// IOSTOUCH_WHEEL_CANCEL in the gap at the bottom; -1 off the ring (the middle,
+// or well outside it)
+static int IOSTouch_WheelSliceAt(double x, double y, int cur)
+{
+  const double dx = x - _fWheelCX, dy = _fWheelCY - y;
+  const double r = sqrt(dx * dx + dy * dy);
+  if (r < _fWheelR0 - 4.0 || r > _fWheelR1 + IOSTOUCH_WHEEL_POP + 14.0) return -1;
+  return IOSTouch_WheelSliceForAngle(atan2(dy, dx) * 180.0 / M_PI, cur);
+}
+
+// The opener's slide: the direction from where it went down picks the slice.
+// Inside the dead zone nothing is picked (once it has been out, lifting there
+// cancels); the point it is measured from trails behind the thumb. Dragged
+// onto the wheel itself, the slice under the thumb is picked instead (none
+// in the middle, the gap cancels). Back where it went down, nothing is
+// picked, however far it went. (Jedi Knight's aimWheel.)
+static void IOSTouch_WheelAim(IOSTouchSlot *s, double x, double y)
+{
+  double dx = x - s->wheelOriginX, dy = y - s->wheelOriginY;
+  double r = sqrt(dx * dx + dy * dy);
+  if (r > IOSTOUCH_WHEEL_LEASH) {
+    const double k = (r - IOSTOUCH_WHEEL_LEASH) / r;
+    s->wheelOriginX += dx * k;
+    s->wheelOriginY += dy * k;
+    dx = x - s->wheelOriginX;
+    dy = y - s->wheelOriginY;
+    r = IOSTOUCH_WHEEL_LEASH;
+  }
+  const double cx = x - _fWheelCX, cy = _fWheelCY - y;
+  if (sqrt(cx * cx + cy * cy) <= _fWheelR1 + IOSTOUCH_WHEEL_POP + 14.0) {
+    s->bArmed = 1;
+    s->wheelAim = atan2(cy, cx) * 180.0 / M_PI;
+    s->wheelSlot = IOSTouch_WheelSliceAt(x, y, s->wheelSlot);
+    return;
+  }
+  if (s->bArmed && hypot(x - s->xDown, y - s->yDown) < IOSTOUCH_WHEEL_DEAD) {
+    s->wheelOriginX = s->xDown;
+    s->wheelOriginY = s->yDown;
+    s->wheelSlot = -1;
+    return;
+  }
+  if (r < IOSTOUCH_WHEEL_DEAD) {
+    s->wheelSlot = -1;
+    return;
+  }
+  s->bArmed = 1;
+  s->wheelAim = atan2(-dy, dx) * 180.0 / M_PI;
+  s->wheelSlot = IOSTouch_WheelSliceForAngle(s->wheelAim, s->wheelSlot);
+}
+
+// What is pointed at on the open wheel: by the opener once it has slid, else
+// by the newest other finger on it (an opener that opened it by holding still
+// points at nothing until it slides). A slice, IOSTOUCH_WHEEL_CANCEL (the
+// gap), or -1; *pbCancel: lifting would cancel (the gap, back in the dead
+// zone, or a finger off the ring); *ppSlide: the sliding opener, if it points.
+static int IOSTouch_WheelPointed(int *pbCancel, const IOSTouchSlot **ppSlide)
+{
+  const IOSTouchSlot *pSlide = NULL, *pFinger = NULL;
+  for (int i = 0; i < IOSTOUCH_MAX_TOUCHES; i++) {
+    const IOSTouchSlot *s = &_aSlots[i];
+    if (!s->touch || s->role != ROLE_WHEEL) continue;
+    if (s->bWheelOpener && s->bWheelHeld) continue;
+    if (s->bWheelOpener && !_bWheelTapMode) pSlide = s;
+    else if (!pFinger || s->uSeq > pFinger->uSeq) pFinger = s;
+  }
+  int hot = -1, bCancel = 0;
+  if (pSlide && pSlide->bArmed) {
+    hot = pSlide->wheelSlot;
+    bCancel = hot < 0;
+  }
+  else if (pFinger) {
+    hot = pFinger->wheelSlot;
+    bCancel = hot < 0;
+    pSlide = NULL;
+  }
+  else {
+    pSlide = NULL;
+  }
+  if (pbCancel) *pbCancel = _bWheelOpen && bCancel;
+  if (ppSlide) *ppSlide = _bWheelOpen ? pSlide : NULL;
+  return _bWheelOpen ? hot : -1;
+}
+
+static int IOSTouch_WheelHot(void)
+{
+  return IOSTouch_WheelPointed(NULL, NULL);
+}
+
+// After every touch on the open wheel: a haptic tick each time the thumb
+// moves onto another slice or the gap (not when it leaves them)
+static void IOSTouch_WheelUpdateHot(void)
+{
+  const int hot = IOSTouch_WheelHot();
+  if (hot != _iWheelHot) {
+    if (hot != -1) _ctWheelTicks++;
+    _iWheelHot = hot;
+  }
+}
+
+// Opens the wheel from a press on NEXT WPN or PREV WPN (s): slid (to slide to
+// a slice, measured from where it went down) or held still (bHeld: to tap
+// one). Every other touch lets go of what it held and is ignored until it
+// lifts (a press waiting on the other button too); MENU's tray closes; the
+// stick stops. The game holds still until it closes (IOSTouch_HoldsGame).
+static void IOSTouch_WheelOpen(IOSTouchSlot *s, int bHeld)
+{
+  IOSTouch_SetTrayOpen(0);
+  for (int i = 0; i < IOSTOUCH_MAX_TOUCHES; i++) {
+    IOSTouchSlot *o = &_aSlots[i];
+    if (!o->touch) continue;
+    if (o->role == ROLE_BUTTON && _aButtonHeld[o->button] > 0) _aButtonHeld[o->button]--;
+    if (o->role == ROLE_STICK) {
+      _bStickActive = 0;
+      _fStickX = _fStickY = 0.0f;
+    }
+    if (o != s) o->role = ROLE_IGNORED;
+  }
+  _fSaveRing = _fLoadRing = _fMenuRing = _fMessagesRing = 0.0f;
+  _afWheelRing[0] = _afWheelRing[1] = 0.0f;
+  IOSTouch_SetMoveFromStick();
+  IOSTouch_SharedWheelOpened();
+  _bWheelOpen = 1;
+  _bWheelTapMode = bHeld != 0;
+  _iWheelButton = s->button;
+  _iWheelMap = (_wpn.iMap == IOSTOUCH_WHEEL_TFE) ? IOSTOUCH_WHEEL_TFE : IOSTOUCH_WHEEL_TSE;
+  s->role = ROLE_WHEEL;
+  s->bWheelOpener = 1;
+  s->bWheelHeld = bHeld != 0;
+  s->bArmed = 0;
+  s->wheelSlot = -1;
+  s->wheelOriginX = s->xDown;
+  s->wheelOriginY = s->yDown;
+  _iWheelHot = -1;
+  IOSTouch_WheelUpdateHot();
+  IOSTouch_SetHeld(IOSTouch_HeldButtons(), 0);
+}
+
+// Closes the wheel, picking what is in slice i if it can be picked (the game
+// gets it as soon as it goes on: IOSTouch_ReadInput). Fingers still on it are
+// ignored until they lift.
+static void IOSTouch_WheelClose(int i)
+{
+  if (_bWheelOpen && IOSTouch_WheelCanPick(i)) IOSTouch_QueuePick(IOSTouch_WheelMapOf(_iWheelMap)->aSlots[i].iWeapon);
+  for (int t = 0; t < IOSTOUCH_MAX_TOUCHES; t++) {
+    if (_aSlots[t].touch && _aSlots[t].role == ROLE_WHEEL) _aSlots[t].role = ROLE_IGNORED;
+  }
+  _bWheelOpen = 0;
+  _bWheelTapMode = 0;
+  _iWheelHot = -1;
+}
+
+// A press on NEXT WPN or PREV WPN still waiting to see which gesture it is
+static int IOSTouch_IsWheelPress(const IOSTouchSlot *s)
+{
+  return s->touch && s->role == ROLE_BUTTON && _aButtons[s->button].kind == KIND_WHEEL;
+}
+
+// A wheel press slid IOSTOUCH_WHEEL_OPEN_SLIDE from where it went down: the
+// wheel opens, to slide -- or, if it can't now, the press is no tap any more
+// either. Returns whether it opened.
+static int IOSTouch_WheelPressSlid(IOSTouchSlot *s, double x, double y)
+{
+  if (!IOSTouch_IsWheelPress(s) || s->bFired || hypot(x - s->xDown, y - s->yDown) < IOSTOUCH_WHEEL_OPEN_SLIDE) return 0;
+  if (!IOSTouch_WheelCanOpen()) {
+    s->bFired = 1;
+    _afWheelRing[s->button == BTN_PREVWPN] = 0.0f;
+    return 0;
+  }
+  IOSTouch_WheelOpen(s, 0);
+  return 1;
+}
+
+// What the game says, every frame before IOSTouch_Update. The wheel closes,
+// picking nothing, once the game couldn't take a pick (the player died, a
+// cutscene's camera, a level change).
+void IOSTouch_SetWeapons(const IOSTouchWeapons *pw)
+{
+  _wpn = *pw;
+  if (_bWheelOpen && !IOSTouch_WheelCanOpen()) IOSTouch_WheelClose(-1);
+}
+
+// ------------------------------------------------- the wheel's icons
+// The HUD's own weapon icons, which the game hands over from its data
+// (IOS_GetWeaponIcon, asked for by the main loop between frames:
+// IOSTouch_WantedIcons): kept for the process, each as it is and tinted for
+// the states that grey it (IOSTouch_TintIcon). The two colts show the colt's.
+#define IOSTOUCH_ICON_MAX 64
+enum { WICON_READY = 0, WICON_NOAMMO, WICON_NOTFOUND, WICON_NUM };
+typedef struct {
+  int bHave, bGaveUp, bAsked;
+  double tAsked;
+  int w, h;
+  unsigned char aub[WICON_NUM][IOSTOUCH_ICON_MAX * IOSTOUCH_ICON_MAX * 4];
+} IOSTouchIcon;
+static IOSTouchIcon _aIcons[IOSTOUCH_WPN_MAX];
+static unsigned int _ulIconsNew = 0; // icons the view hasn't made images of yet
+
+// The icon a weapon shows: the two colts the colt's
+static int IOSTouch_WheelIconOf(int iWeapon)
+{
+  return iWeapon == 3 ? 2 : iWeapon;
+}
+
+// A state's tint of an icon (RGBA, not premultiplied): grey (luma x k), alpha
+// x a -- no ammo 0.80 / 0.70, not found yet 0.40 / 0.45, so the two read
+// apart and a weapon not found yet is a faint silhouette
+static void IOSTouch_TintIcon(const unsigned char *pubSrc, int ctTexels, int iState, unsigned char *pubDst)
+{
+  if (iState == WICON_READY) {
+    memcpy(pubDst, pubSrc, (size_t)ctTexels * 4);
+    return;
+  }
+  const float k = (iState == WICON_NOAMMO) ? 0.80f : 0.40f;
+  const float a = (iState == WICON_NOAMMO) ? 0.70f : 0.45f;
+  for (int i = 0; i < ctTexels; i++) {
+    const unsigned char *p = pubSrc + i * 4;
+    const float lum = 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2];
+    float v = lum * k + 0.5f, al = p[3] * a + 0.5f;
+    if (v > 255.0f) v = 255.0f;
+    if (al > 255.0f) al = 255.0f;
+    pubDst[i * 4 + 0] = pubDst[i * 4 + 1] = pubDst[i * 4 + 2] = (unsigned char)v;
+    pubDst[i * 4 + 3] = (unsigned char)al;
+  }
+}
+
+unsigned int IOSTouch_WantedIcons(double tNow)
+{
+  if (_iMode != IOSTOUCH_GAMEPLAY || !_wpn.bValid) return 0;
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(_wpn.iMap);
+  unsigned int ul = 0;
+  for (int i = 0; i < m->ctSlots; i++) {
+    const int w = IOSTouch_WheelIconOf(m->aSlots[i].iWeapon);
+    IOSTouchIcon *pi = &_aIcons[w];
+    if (pi->bHave || pi->bGaveUp || (ul & (1u << w))) continue;
+    if (pi->bAsked && tNow - pi->tAsked < 1.0) continue;
+    pi->bAsked = 1;
+    pi->tAsked = tNow;
+    ul |= 1u << w;
+  }
+  return ul;
+}
+
+void IOSTouch_SetWeaponIcon(int iWeapon, const unsigned char *pubRGBA, int iWidth, int iHeight)
+{
+  if (iWeapon <= 0 || iWeapon >= IOSTOUCH_WPN_MAX) return;
+  IOSTouchIcon *pi = &_aIcons[iWeapon];
+  if (!pubRGBA || iWidth <= 0 || iHeight <= 0 || iWidth > IOSTOUCH_ICON_MAX || iHeight > IOSTOUCH_ICON_MAX) {
+    if (!pi->bHave) pi->bGaveUp = 1; // its name shows instead
+    _ulIconsNew |= 1u << iWeapon;
+    return;
+  }
+  pi->w = iWidth;
+  pi->h = iHeight;
+  for (int st = 0; st < WICON_NUM; st++) IOSTouch_TintIcon(pubRGBA, iWidth * iHeight, st, pi->aub[st]);
+  pi->bHave = 1;
+  pi->bGaveUp = 0;
+  _ulIconsNew |= 1u << iWeapon;
+}
+
+// ------------------------------------------------- the wheel's layout
+// Each slice shows its icon in a box IOSTOUCH_WHEEL_ICON x k points square,
+// and under it, IOSTOUCH_WHEEL_ROW_GAP down, its ammo count in a row as tall
+// as the digits (IOSTOUCH_WHEEL_AMMO_INK of the IOSTOUCH_WHEEL_AMMO_FONT x k
+// pt font) and as wide as "000". The two are fitted as one block, upright,
+// IOSTOUCH_WHEEL_BLOCK_MARGIN inside the slice as drawn (a degree in from
+// its edges) and the hole, every slice with the row (so the layout never
+// depends on the counts); k is the largest of 1.15, 1.10 ... 0.60 at which
+// every slice's block fits, one for the wheel. Each block sits at the middle
+// of the stretch of its slice's middle line where it fits; a slice without a
+// count centres its icon in the block. A slice that pops out takes its block
+// out IOSTOUCH_WHEEL_POP_SHIFT, the icon IOSTOUCH_WHEEL_POP_ICON as big.
+#define IOSTOUCH_WHEEL_ICON 32.0
+#define IOSTOUCH_WHEEL_ROW_GAP 2.0
+#define IOSTOUCH_WHEEL_AMMO_FONT 9.0
+#define IOSTOUCH_WHEEL_AMMO_INK 0.705
+#define IOSTOUCH_WHEEL_ROW_W (3 * 0.6 * IOSTOUCH_WHEEL_AMMO_FONT) // "000" in the system font's monospaced digits
+#define IOSTOUCH_WHEEL_BLOCK_MARGIN 2.0
+#define IOSTOUCH_WHEEL_POP_SHIFT 5.0
+#define IOSTOUCH_WHEEL_POP_ICON 1.08
+
+typedef struct {
+  int iMap;
+  double R0, R1;
+  double k;                         // the icons' scale (0: nothing fits)
+  double afR[IOSTOUCH_WHEEL_MAX];   // each block's middle, from the wheel's centre
+} IOSTouchWheelFit;
+
+// The block's size at scale k
+static void IOSTouch_WheelBlockSize(double k, double *pfW, double *pfH)
+{
+  const double B = IOSTOUCH_WHEEL_ICON * k;
+  *pfW = fmax(B, IOSTOUCH_WHEEL_ROW_W * k);
+  *pfH = B + IOSTOUCH_WHEEL_ROW_GAP + IOSTOUCH_WHEEL_AMMO_FONT * IOSTOUCH_WHEEL_AMMO_INK * k;
+}
+
+// Whether a w x h block centred at (cx,cy) (y up, from the wheel's centre)
+// is IOSTOUCH_WHEEL_BLOCK_MARGIN inside the slice at th (radians), drawn half
+// either side, between the radii R0 and R1
+static int IOSTouch_WheelBlockFits(double cx, double cy, double w, double h, double th, double half, double R0, double R1)
+{
+  const double M = IOSTOUCH_WHEEL_BLOCK_MARGIN;
+  const double xs[2] = { cx - w * 0.5, cx + w * 0.5 }, ys[2] = { cy - h * 0.5, cy + h * 0.5 };
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 2; j++) {
+      if (hypot(xs[i], ys[j]) > R1 - M) return 0;
+    }
+  }
+  const double nx = fmin(fmax(0.0, xs[0]), xs[1]), ny = fmin(fmax(0.0, ys[0]), ys[1]); // nearest the centre
+  if (hypot(nx, ny) < R0 + M) return 0;
+  // the slice's two edges, lines through the centre, and their inward normals
+  const double a1 = th + half, a2 = th - half;
+  const double an[2][2] = { { sin(a1), -cos(a1) }, { -sin(a2), cos(a2) } };
+  for (int n = 0; n < 2; n++) {
+    for (int i = 0; i < 2; i++) {
+      for (int j = 0; j < 2; j++) {
+        if (xs[i] * an[n][0] + ys[j] * an[n][1] < M) return 0;
+      }
+    }
+  }
+  return 1;
+}
+
+// The stretch of a slice's middle line where the block fits at scale k: its
+// middle (0: nowhere)
+static double IOSTouch_WheelBlockPlace(const IOSTouchWheelMap *m, int i, double k, double R0, double R1)
+{
+  double w, h;
+  IOSTouch_WheelBlockSize(k, &w, &h);
+  const double th = IOSTouch_WheelSlotDeg(m, i) * M_PI / 180.0;
+  const double half = (m->fSliceDeg * 0.5 - 1.0) * M_PI / 180.0;
+  double rIn = -1.0, rOut = -1.0;
+  const int n = 400;
+  for (int j = 0; j <= n; j++) {
+    const double r = R0 + (R1 - R0) * j / n;
+    if (IOSTouch_WheelBlockFits(r * cos(th), r * sin(th), w, h, th, half, R0, R1)) {
+      if (rIn < 0.0) rIn = r;
+      rOut = r;
+    }
+  }
+  return rIn < 0.0 ? 0.0 : (rIn + rOut) * 0.5;
+}
+
+static void IOSTouch_WheelFitFor(int iMap, double R0, double R1, IOSTouchWheelFit *pf)
+{
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(iMap);
+  memset(pf, 0, sizeof(*pf));
+  pf->iMap = iMap;
+  pf->R0 = R0;
+  pf->R1 = R1;
+  for (int n = 0; n <= 11; n++) {
+    const double k = (115 - 5 * n) / 100.0;
+    int bAll = 1;
+    for (int i = 0; i < m->ctSlots && bAll; i++) {
+      pf->afR[i] = IOSTouch_WheelBlockPlace(m, i, k, R0, R1);
+      bAll = pf->afR[i] > 0.0;
+    }
+    if (bAll) {
+      pf->k = k;
+      return;
+    }
+  }
+  // nothing fits (never on a phone or iPad screen): the smallest, in the middle of the ring
+  pf->k = 0.60;
+  for (int i = 0; i < m->ctSlots; i++) pf->afR[i] = (R0 + R1) * 0.5;
+}
+
+// The open wheel's fit (made again only when the map or the size changes)
+static IOSTouchWheelFit _wheelFit;
+static const IOSTouchWheelFit *IOSTouch_WheelFit(void)
+{
+  if (_wheelFit.k <= 0.0 || _wheelFit.iMap != _iWheelMap || _wheelFit.R0 != _fWheelR0 || _wheelFit.R1 != _fWheelR1) {
+    IOSTouch_WheelFitFor(_iWheelMap, _fWheelR0, _fWheelR1, &_wheelFit);
+  }
+  return &_wheelFit;
+}
+
+// Where slice i draws its icon box and its count's row (points): popped out
+// or not, with a count (the icon at the block's top, the row under it) or
+// without (the icon in the block's middle)
+static void IOSTouch_WheelSlotRects(int i, int bPopped, int bCount, IOSTouchRect *prIcon, IOSTouchRect *prRow)
+{
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(_iWheelMap);
+  const IOSTouchWheelFit *f = IOSTouch_WheelFit();
+  const double th = IOSTouch_WheelSlotDeg(m, i) * M_PI / 180.0;
+  const double r = f->afR[i] + (bPopped ? IOSTOUCH_WHEEL_POP_SHIFT : 0.0);
+  const double bx = _fWheelCX + r * cos(th), by = _fWheelCY - r * sin(th);
+  double w, h;
+  IOSTouch_WheelBlockSize(f->k, &w, &h);
+  const double B = IOSTOUCH_WHEEL_ICON * f->k, rowH = IOSTOUCH_WHEEL_AMMO_FONT * IOSTOUCH_WHEEL_AMMO_INK * f->k;
+  const double iy = bCount ? by - h * 0.5 + B * 0.5 : by; // the icon's middle
+  const double s = B * (bPopped ? IOSTOUCH_WHEEL_POP_ICON : 1.0) * 0.5;
+  const IOSTouchRect rIcon = { 1, bx - s, iy - s, bx + s, iy + s };
+  const double ry = by - h * 0.5 + B + IOSTOUCH_WHEEL_ROW_GAP + rowH * 0.5;
+  const IOSTouchRect rRow = { bCount, bx - IOSTOUCH_WHEEL_ROW_W * f->k * 0.5, ry - rowH * 0.5, bx + IOSTOUCH_WHEEL_ROW_W * f->k * 0.5, ry + rowH * 0.5 };
+  if (prIcon) *prIcon = rIcon;
+  if (prRow) *prRow = rRow;
+}
+
+// ------------------------------------------------- the middle
+// What the middle says: the name of what is pointed at (or of the weapon in
+// hand), its count "37 / 50", and a hint. The view lays it out with
+// IOSTouch_WheelMiddleLayout, measuring its own fonts.
+enum { WTITLE_SLOT = 0, WTITLE_GREY, WTITLE_WHITE };
+typedef struct {
+  const char *strTitle;
+  const char *strTitle2;  // on two lines, if it has no space to break at (else NULL)
+  int iTitleLook;         // WTITLE_*
+  int iColour;            // WTITLE_SLOT: the slice's WCOL_*
+  char strCount[24];      // "" for none
+  const char *strHint;
+  int iHot;               // what is pointed at (IOSTouch_WheelPointed)
+  int bCancel;
+} IOSTouchWheelMiddle;
+
+static void IOSTouch_WheelMiddleState(IOSTouchWheelMiddle *pm)
+{
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(_iWheelMap);
+  memset(pm, 0, sizeof(*pm));
+  pm->iHot = IOSTouch_WheelPointed(&pm->bCancel, NULL);
+  int i = pm->iHot;
+  if (i < 0 && !pm->bCancel) {
+    // nothing pointed at: the weapon in hand
+    for (int j = 0; j < m->ctSlots; j++) {
+      if (m->aSlots[j].iWeapon == _wpn.iWanted) i = j;
+    }
+    pm->strHint = _bWheelTapMode ? "tap a weapon" : "slide toward a weapon";
+    if (i < 0) {
+      pm->strTitle = "WEAPONS";
+      pm->iTitleLook = WTITLE_WHITE;
+      return;
+    }
+  }
+  if (i < 0) {
+    pm->strTitle = "CANCEL";
+    pm->iTitleLook = WTITLE_WHITE;
+    pm->strHint = "lift to cancel";
+    return;
+  }
+  const IOSTouchWheelSlot *sl = &m->aSlots[i];
+  const int st = IOSTouch_WheelSlotState(i);
+  pm->strTitle = sl->strName;
+  pm->strTitle2 = sl->strName2;
+  pm->iTitleLook = (st == WSTATE_READY) ? WTITLE_SLOT : WTITLE_GREY;
+  pm->iColour = sl->iColour;
+  const int ct = IOSTouch_WheelSlotCount(i);
+  if (ct >= 0) {
+    const int mx = _wpn.aiMaxAmmo[sl->iWeapon];
+    snprintf(pm->strCount, sizeof(pm->strCount), "%d / %d", ct, mx < 0 ? 0 : (mx > 999 ? 999 : mx));
+  }
+  if (pm->iHot >= 0) {
+    pm->strHint = (st == WSTATE_READY) ? "lift to select" : ((st == WSTATE_NOAMMO) ? "no ammo" : "not found yet");
+  }
+}
+
+// The middle's lines, stacked and centred on the wheel's centre: the title
+// (WLINE_TITLE: bold 17 pt), the count (semibold 11 pt), the hint (semibold
+// 10 pt), 2 pt between the three, each line 1.18 times its size tall. Each
+// line keeps within the hole's chord at its height (measured
+// IOSTOUCH_WHEEL_NEEDLE_CLEAR in from the hole's edge, at the height of its
+// capitals, 0.75 of its size); an item's lines share one size, no smaller
+// than its smallest scale (title 0.6, count 0.8, hint 0.7; the title 0.5
+// where nothing fits so). The title and the hint may go on two lines; the
+// count may be left out (the slice shows it). For each way of stacking them
+// the sizes are searched for: the count as large as fits, then the title
+// and the hint as large as fits. Of the ways that fit, the one that keeps
+// the count, then has the larger of the title's and the hint's smaller
+// scale, then the larger sum of the two, then the fewest lines. Returns how
+// many lines (0: nothing fits).
+enum { WLINE_TITLE = 0, WLINE_COUNT, WLINE_HINT };
+typedef double (*IOSTouchTextWidth)(const char *str, int iKind, double fSize, void *pUser);
+typedef struct {
+  char str[64];
+  int iKind;
+  double fSize;
+  double fDY; // the line's middle, below the wheel's centre
+} IOSTouchMiddleLine;
+#define IOSTOUCH_MIDDLE_LINES 5
+
+// Text on two lines at its middle space ("a\nb"), or as given; 0 if it can't
+static int IOSTouch_SplitLine(const char *str, const char *str2, char *a, char *b, size_t size)
+{
+  if (str2) {
+    const char *nl = strchr(str2, '\n');
+    snprintf(a, size, "%.*s", (int)(nl - str2), str2);
+    snprintf(b, size, "%s", nl + 1);
+    return 1;
+  }
+  const int n = (int)strlen(str);
+  int best = -1;
+  for (int i = 0; i < n; i++) {
+    if (str[i] == ' ' && (best < 0 || fabs(i - n * 0.5) < fabs(best - n * 0.5))) best = i;
+  }
+  if (best < 0) return 0;
+  snprintf(a, size, "%.*s", best, str);
+  snprintf(b, size, "%s", str + best + 1);
+  return 1;
+}
+
+// One way to stack the middle's lines (a candidate of IOSTouch_WheelMiddleLayout): the lines, how many items
+// they are, each line's width at its item's nominal size, and the radius the chords are measured on
+typedef struct {
+  IOSTouchMiddleLine a[IOSTOUCH_MIDDLE_LINES];
+  int n, ctItems;
+  double afNomW[IOSTOUCH_MIDDLE_LINES];
+  double r;
+} IOSTouchMiddleStack;
+static const double _afMiddleNom[3] = { 17.0, 11.0, 10.0 };
+
+// Lays the lines out at these sizes (points, per item): each line's middle, and the chord it has
+static void IOSTouch_MiddlePlace(IOSTouchMiddleStack *c, const double afSize[3], double afRoom[IOSTOUCH_MIDDLE_LINES])
+{
+  double h = 2.0 * (c->ctItems - 1);
+  for (int j = 0; j < c->n; j++) h += afSize[c->a[j].iKind] * 1.18;
+  double y = -h * 0.5;
+  for (int j = 0; j < c->n; j++) {
+    if (j > 0 && c->a[j].iKind != c->a[j - 1].iKind) y += 2.0;
+    const double sz = afSize[c->a[j].iKind], lh = sz * 1.18;
+    c->a[j].fSize = sz;
+    c->a[j].fDY = y + lh * 0.5;
+    y += lh;
+    const double yy = fabs(c->a[j].fDY) + sz * 0.75 * 0.5;
+    afRoom[j] = 2.0 * sqrt(fmax(0.0, c->r * c->r - yy * yy));
+  }
+}
+
+// Whether every line keeps within its chord with the items at these scales of their nominal sizes (a line's
+// width taken as its nominal width times the scale)
+static int IOSTouch_MiddleFitsAt(IOSTouchMiddleStack *c, const double afScale[3])
+{
+  double afSize[3], afRoom[IOSTOUCH_MIDDLE_LINES];
+  for (int k = 0; k < 3; k++) afSize[k] = _afMiddleNom[k] * afScale[k];
+  IOSTouch_MiddlePlace(c, afSize, afRoom);
+  for (int j = 0; j < c->n; j++) {
+    if (c->afNomW[j] * afScale[c->a[j].iKind] > afRoom[j] + 1e-6) return 0;
+  }
+  return 1;
+}
+
+// Item k's scale grown as far as it goes (up to 1), the others as they are; it fits at afScale[k] already.
+// A smaller item is narrower and makes the stack shorter, so this halves the step between a scale that fits
+// and one that doesn't; whatever it ends on is one that was seen to fit.
+#define IOSTOUCH_MIDDLE_STEPS 20
+static void IOSTouch_MiddleGrow(IOSTouchMiddleStack *c, double afScale[3], int k)
+{
+  double ok = afScale[k];
+  afScale[k] = 1.0;
+  if (IOSTouch_MiddleFitsAt(c, afScale)) return;
+  double bad = 1.0;
+  for (int i = 0; i < IOSTOUCH_MIDDLE_STEPS; i++) {
+    afScale[k] = 0.5 * (ok + bad);
+    if (IOSTouch_MiddleFitsAt(c, afScale)) ok = afScale[k];
+    else bad = afScale[k];
+  }
+  afScale[k] = ok;
+}
+
+static int IOSTouch_WheelMiddleLayout(double R0, const IOSTouchWheelMiddle *pm, IOSTouchTextWidth pfnWidth, void *pUser,
+                                      IOSTouchMiddleLine aOut[IOSTOUCH_MIDDLE_LINES])
+{
+  const double *afNom = _afMiddleNom;
+  const int bCount = pm->strCount[0] != 0;
+  char aT[2][64], aH[2][64];
+  const int bCanSplitT = IOSTouch_SplitLine(pm->strTitle, pm->strTitle2, aT[0], aT[1], sizeof(aT[0]));
+  const int bCanSplitH = IOSTouch_SplitLine(pm->strHint, NULL, aH[0], aH[1], sizeof(aH[0]));
+  int ctBest = 0;
+  double afKey[3] = { -1.0, -1.0, -1.0 };
+  int bBestCount = -1;
+  // (should nothing fit, the title may go to half its size; no name, hint and count needs it on any screen)
+  for (int pass = 0; pass < 2 && ctBest == 0; pass++) {
+  const double afMin[3] = { pass ? 0.5 : 0.6, 0.8, 0.7 };
+  for (int cand = 0; cand < 8; cand++) {
+    const int bWrapT = (cand >> 2) & 1, bWrapH = (cand >> 1) & 1, bWith2 = !(cand & 1);
+    if ((bWrapT && !bCanSplitT) || (bWrapH && !bCanSplitH)) continue;
+    IOSTouchMiddleStack st;
+    IOSTouchMiddleLine *a = st.a;
+    int n = 0;
+    if (bWrapT) {
+      for (int j = 0; j < 2; j++) { snprintf(a[n].str, sizeof(a[n].str), "%s", aT[j]); a[n++].iKind = WLINE_TITLE; }
+    }
+    else {
+      snprintf(a[n].str, sizeof(a[n].str), "%s", pm->strTitle);
+      a[n++].iKind = WLINE_TITLE;
+    }
+    if (bWith2 && bCount) {
+      snprintf(a[n].str, sizeof(a[n].str), "%s", pm->strCount);
+      a[n++].iKind = WLINE_COUNT;
+    }
+    if (bWrapH) {
+      for (int j = 0; j < 2; j++) { snprintf(a[n].str, sizeof(a[n].str), "%s", aH[j]); a[n++].iKind = WLINE_HINT; }
+    }
+    else {
+      snprintf(a[n].str, sizeof(a[n].str), "%s", pm->strHint);
+      a[n++].iKind = WLINE_HINT;
+    }
+    st.n = n;
+    st.ctItems = (bWith2 && bCount) ? 3 : 2;
+    st.r = R0 - IOSTOUCH_WHEEL_NEEDLE_CLEAR;
+    for (int j = 0; j < n; j++) st.afNomW[j] = pfnWidth(a[j].str, a[j].iKind, afNom[a[j].iKind], pUser);
+    // The sizes are searched for, not only shrunk from the nominal ones (a title shrunk to fit a tall stack
+    // can grow again once the stack is shorter): first the count, as large as fits with the title and hint
+    // at their smallest; then the title and the hint together, at the largest scale they can share (each
+    // no smaller than its own smallest); then whichever of the two grows the further on its own
+    double afScale[3] = { afMin[0], afMin[1], afMin[2] };
+    if (!IOSTouch_MiddleFitsAt(&st, afScale)) continue;
+    IOSTouch_MiddleGrow(&st, afScale, WLINE_COUNT);
+    {
+      const double lo = fmin(afMin[0], afMin[2]);
+      double ok = lo, bad = 1.0, s = 1.0;
+      afScale[0] = afScale[2] = 1.0;
+      if (!IOSTouch_MiddleFitsAt(&st, afScale)) {
+        for (int i = 0; i < IOSTOUCH_MIDDLE_STEPS; i++) {
+          s = 0.5 * (ok + bad);
+          afScale[0] = fmax(s, afMin[0]);
+          afScale[2] = fmax(s, afMin[2]);
+          if (IOSTouch_MiddleFitsAt(&st, afScale)) ok = s;
+          else bad = s;
+        }
+        s = ok;
+      }
+      afScale[0] = fmax(s, afMin[0]);
+      afScale[2] = fmax(s, afMin[2]);
+    }
+    double afT[3] = { afScale[0], afScale[1], afScale[2] }, afH[3] = { afScale[0], afScale[1], afScale[2] };
+    IOSTouch_MiddleGrow(&st, afT, WLINE_TITLE);
+    IOSTouch_MiddleGrow(&st, afH, WLINE_HINT);
+    const double *afPick = (afT[0] + afT[2] >= afH[0] + afH[2]) ? afT : afH;
+    double afSize[3], afRoom[IOSTOUCH_MIDDLE_LINES];
+    for (int k = 0; k < 3; k++) afSize[k] = afNom[k] * afPick[k];
+    // Measured as drawn (the view's fonts needn't scale exactly with size): an item with a line still over
+    // its chord shrinks to fit it, until none is (sizes only go down here, so the stack only gets shorter)
+    for (int it = 0; it <= 8; it++) {
+      IOSTouch_MiddlePlace(&st, afSize, afRoom);
+      if (it == 8) break;
+      int bShrunk = 0;
+      for (int k = 0; k < 3; k++) {
+        double f = 1.0;
+        for (int j = 0; j < n; j++) {
+          if (a[j].iKind != k) continue;
+          const double w = pfnWidth(a[j].str, k, afSize[k], pUser);
+          if (w > afRoom[j] + 1e-6) f = fmin(f, afRoom[j] / w);
+        }
+        if (f < 1.0) {
+          afSize[k] *= f;
+          bShrunk = 1;
+        }
+      }
+      if (!bShrunk) break;
+    }
+    // The result as laid out: every line within its chord, every item at or above its smallest scale
+    int bOk = 1;
+    for (int j = 0; j < n; j++) {
+      const int k = a[j].iKind;
+      if (afSize[k] < afNom[k] * afMin[k] - 1e-9 || pfnWidth(a[j].str, k, afSize[k], pUser) > afRoom[j] + 1e-6) bOk = 0;
+    }
+    if (!bOk) continue;
+    const double ts = afSize[WLINE_TITLE] / afNom[WLINE_TITLE], hs = afSize[WLINE_HINT] / afNom[WLINE_HINT];
+    const int bKeeps = bWith2 || !bCount;
+    const double k1 = round(fmin(ts, hs) * 1000.0) / 1000.0, k2 = round((ts + hs) * 1000.0) / 1000.0, k3 = -n;
+    const int bBetter = ctBest == 0 || bKeeps > bBestCount
+                        || (bKeeps == bBestCount && (k1 > afKey[0] || (k1 == afKey[0] && (k2 > afKey[1] || (k2 == afKey[1] && k3 > afKey[2])))));
+    if (bBetter) {
+      bBestCount = bKeeps;
+      afKey[0] = k1;
+      afKey[1] = k2;
+      afKey[2] = k3;
+      ctBest = n;
+      memcpy(aOut, a, sizeof(a[0]) * n);
+    }
+  }
+  }
+  return ctBest;
+}
+
+// ------------------------------------------------- the wheel's looks
+// A slice's colour, k of the way to it from the wheel's dark grey (RGB 0..1)
+static void IOSTouch_WheelMix(int iColour, double k, float af[4])
+{
+  for (int c = 0; c < 3; c++) af[c] = (float)((_aubWheelColours[iColour][c] * k + 32.0 * (1.0 - k)) / 255.0);
+  af[3] = 1.0f;
+}
+static void IOSTouch_Grey(double v, double a, float af[4])
+{
+  af[0] = af[1] = af[2] = (float)v;
+  af[3] = (float)a;
+}
+
+// Whether dark text (grey 0.08) reads better than white on this colour: the
+// higher contrast of the two by WCAG's relative luminance (on the rockets'
+// popped red white does, 4.7:1 to dark's 3.9:1; on the others dark does)
+static double IOSTouch_Luminance(const float af[4])
+{
+  double l = 0.0;
+  static const double afW[3] = { 0.2126, 0.7152, 0.0722 };
+  for (int c = 0; c < 3; c++) {
+    const double v = af[c];
+    l += afW[c] * (v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4));
+  }
+  return l;
+}
+static int IOSTouch_DarkReads(const float afFill[4])
+{
+  const float afDark[4] = { 0.08f, 0.08f, 0.08f, 1.0f };
+  const double lf = IOSTouch_Luminance(afFill), ld = IOSTouch_Luminance(afDark);
+  return (lf + 0.05) / (ld + 0.05) >= (1.0 + 0.05) / (lf + 0.05);
+}
+
+// How slice i looks now (the view draws it so; the colours RGBA 0..1). A
+// weapon it can switch to in its ammo type's colour, the weapon in hand
+// edged in white, the one pointed at popped out and brighter; one out of
+// ammo in a darker shade, its icon grey; one not found yet dark, its icon a
+// faint silhouette, no count.
+typedef struct {
+  int iState;          // WSTATE_*
+  int bHot, bWanted, bPopped;
+  float afFill[4], afEdge[4];
+  double fLine;        // the edge's width
+  int iIcon;           // WICON_*: which tint of its icon
+  int iCount;          // the count under the icon, -1: none
+  float afText[4];     // the count's colour (and the name's, while it has no icon)
+} IOSTouchWheelLook;
+
+static void IOSTouch_WheelSlotLook(int i, int iHot, IOSTouchWheelLook *pl)
+{
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(_iWheelMap);
+  const IOSTouchWheelSlot *sl = &m->aSlots[i];
+  memset(pl, 0, sizeof(*pl));
+  pl->iState = IOSTouch_WheelSlotState(i);
+  pl->bHot = i == iHot;
+  pl->bWanted = sl->iWeapon == _wpn.iWanted;
+  pl->iCount = IOSTouch_WheelSlotCount(i);
+  pl->fLine = 2.0;
+  if (pl->iState == WSTATE_READY) {
+    pl->bPopped = pl->bHot && !pl->bWanted;
+    pl->iIcon = WICON_READY;
+    IOSTouch_WheelMix(sl->iColour, pl->bPopped ? 0.70 : 0.42, pl->afFill);
+    if (pl->bPopped) IOSTouch_Grey(1.0, 1.0, pl->afEdge);
+    else IOSTouch_WheelMix(sl->iColour, 0.8, pl->afEdge);
+    if (pl->bPopped) pl->fLine = 2.5;
+    if (pl->bPopped) IOSTouch_Grey(IOSTouch_DarkReads(pl->afFill) ? 0.08 : 1.0, 1.0, pl->afText);
+    else IOSTouch_Grey(1.0, 1.0, pl->afText);
+  }
+  else if (pl->iState == WSTATE_NOAMMO) {
+    pl->iIcon = WICON_NOAMMO;
+    IOSTouch_WheelMix(sl->iColour, 0.22, pl->afFill);
+    IOSTouch_WheelMix(sl->iColour, pl->bHot ? 0.8 : 0.55, pl->afEdge);
+    if (pl->bHot) pl->fLine = 2.5;
+    IOSTouch_Grey(1.0, 0.75, pl->afText);
+  }
+  else {
+    pl->iIcon = WICON_NOTFOUND;
+    IOSTouch_Grey(pl->bHot ? 0.24 : 0.18, 0.92, pl->afFill);
+    IOSTouch_WheelMix(sl->iColour, pl->bHot ? 0.7 : 0.45, pl->afEdge);
+    if (pl->bHot) pl->fLine = 2.5;
+    IOSTouch_Grey(pl->bHot ? 0.75 : 0.59, 1.0, pl->afText);
+    pl->iCount = -1;
+  }
+  if (pl->bWanted) {
+    IOSTouch_Grey(1.0, 1.0, pl->afEdge);
+    pl->fLine = 2.5;
+  }
+}
+
+// The needle at the edge of the middle, the way the sliding thumb points:
+// whether it shows, its ends (points) and colour
+static int IOSTouch_WheelNeedle(double *px0, double *py0, double *px1, double *py1, float af[4])
+{
+  const IOSTouchSlot *pSlide = NULL;
+  const int hot = IOSTouch_WheelPointed(NULL, &pSlide);
+  if (!pSlide || !pSlide->bArmed || hot == -1) return 0;
+  const double a = pSlide->wheelAim * M_PI / 180.0;
+  *px0 = _fWheelCX + (_fWheelR0 - 9.0) * cos(a);
+  *py0 = _fWheelCY - (_fWheelR0 - 9.0) * sin(a);
+  *px1 = _fWheelCX + (_fWheelR0 - 2.0) * cos(a);
+  *py1 = _fWheelCY - (_fWheelR0 - 2.0) * sin(a);
+  if (hot >= 0 && IOSTouch_WheelSlotState(hot) == WSTATE_READY) IOSTouch_WheelMix(IOSTouch_WheelMapOf(_iWheelMap)->aSlots[hot].iColour, 1.0, af);
+  else IOSTouch_Grey(0.6, 1.0, af);
+  return 1;
+}
+
+// A finger came down at (x,y) on a screen W points wide; now: when it
+// reached us (as IOSTouch_TickHolds counts), tTouch: when it went down by
+// the touch's own clock
+static void IOSTouch_TouchBegan(const void *touch, double x, double y, double W, double now, double tTouch)
 {
   IOSTouchSlot *s = IOSTouch_FindSlot(NULL);
   if (!s || !touch) return;
@@ -886,7 +1916,19 @@ static void IOSTouch_TouchBegan(const void *touch, double x, double y, double W,
   s->x = x;
   s->y = y;
   s->tDown = now;
+  s->tDownTouch = tTouch;
+  s->uSeq = ++_uTouchSeq;
   s->trayButton = -1;
+  s->wheelSlot = -1;
+  // The open weapon wheel takes every touch: on a slice it is a tap there,
+  // anywhere else it closes the wheel as it lifts
+  if (_bWheelOpen) {
+    s->role = ROLE_WHEEL;
+    s->button = -1;
+    s->wheelSlot = IOSTouch_WheelSliceAt(x, y, -1);
+    IOSTouch_WheelUpdateHot();
+    return;
+  }
   s->button = IOSTouch_ButtonAt(x, y);
 
   // An open tray closes at a touch anywhere else, which then does what it
@@ -899,7 +1941,26 @@ static void IOSTouch_TouchBegan(const void *touch, double x, double y, double W,
     }
   }
 
-  if (s->button >= 0) {
+  if (s->button >= 0 && _aButtons[s->button].kind == KIND_WHEEL) {
+    // NEXT WPN, PREV WPN: nothing yet -- a tap, a slide or a hold
+    // (IOSTouch_TouchMoved, IOSTouch_TickHolds, IOSTouch_TouchEnded). A
+    // second finger on the same button is ignored.
+    int bOther = 0;
+    for (int k = 0; k < IOSTOUCH_MAX_TOUCHES; k++) {
+      const IOSTouchSlot *o = &_aSlots[k];
+      if (o != s && IOSTouch_IsWheelPress(o) && o->button == s->button) bOther = 1;
+    }
+    if (bOther) {
+      s->role = ROLE_IGNORED;
+    }
+    else {
+      s->role = ROLE_BUTTON;
+      _aButtonHeld[s->button]++;
+      s->xDown = x;
+      s->yDown = y;
+    }
+  }
+  else if (s->button >= 0) {
     s->role = ROLE_BUTTON;
     _aButtonHeld[s->button]++;
   }
@@ -927,13 +1988,35 @@ static void IOSTouch_TouchBegan(const void *touch, double x, double y, double W,
 }
 
 // A finger moved to (x,y). Returns whether the buttons' looks changed (a
-// thumb held on MENU slid onto or off a tray button).
+// thumb held on MENU slid onto or off a tray button, the weapon wheel opened).
 static int IOSTouch_TouchMoved(const void *touch, double x, double y)
 {
   IOSTouchSlot *s = touch ? IOSTouch_FindSlot(touch) : NULL;
   if (!s) return 0;
   int bLooksChanged = 0;
-  if (s->role == ROLE_BUTTON && s->button == BTN_MENU && s->bFired && _bTrayOpen) {
+  // NEXT WPN, PREV WPN slid far enough from where they went down: the
+  // weapon wheel opens at once, to slide to a slice (from here on this is
+  // its opener)
+  if (IOSTouch_WheelPressSlid(s, x, y)) bLooksChanged = 1;
+  if (s->role == ROLE_WHEEL) {
+    if (s->bWheelOpener && s->bWheelHeld) {
+      // opened by holding still: open to tap, until it slides out of the
+      // dead zone -- then it picks by sliding
+      if (hypot(x - s->xDown, y - s->yDown) >= IOSTOUCH_WHEEL_DEAD) {
+        _bWheelTapMode = 0;
+        s->bWheelHeld = 0;
+        IOSTouch_WheelAim(s, x, y);
+      }
+    }
+    else if (s->bWheelOpener && !_bWheelTapMode) {
+      IOSTouch_WheelAim(s, x, y);
+    }
+    else {
+      s->wheelSlot = IOSTouch_WheelSliceAt(x, y, s->wheelSlot);
+    }
+    IOSTouch_WheelUpdateHot();
+  }
+  else if (s->role == ROLE_BUTTON && s->button == BTN_MENU && s->bFired && _bTrayOpen) {
     // Held until the tray opened: the tray button under the thumb lights up
     int tb = IOSTouch_ButtonAt(x, y);
     tb = IOSTouch_IsTrayButton(tb) ? tb : -1;
@@ -984,6 +2067,9 @@ static int IOSTouch_TouchMoved(const void *touch, double x, double y)
 static void IOSTouch_TouchPassed(const void *touch, double x, double y)
 {
   IOSTouchSlot *s = touch ? IOSTouch_FindSlot(touch) : NULL;
+  // (NEXT WPN and PREV WPN too: a slide that far opens the wheel, even if it
+  // came back)
+  if (s) IOSTouch_WheelPressSlid(s, x, y);
   if (s && s->role == ROLE_BUTTON && IOSTouch_IsQuickHold(s->button) && !IOSTouch_IsOnButton(x, y, s->button)) {
     s->bFired = 1;
   }
@@ -992,15 +2078,75 @@ static void IOSTouch_TouchPassed(const void *touch, double x, double y)
   }
 }
 
-// A finger lifted at (x,y). bCancelled: iOS took the touch away (a call, a
-// system gesture...) -- release whatever it held, but don't treat it as a
-// finished tap.
-static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCancelled)
+// A finger lifted at (x,y), at tTouch by its own clock. bCancelled: iOS
+// took the touch away (a call, a system gesture...) -- release whatever it
+// held, but don't treat it as a finished tap.
+static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCancelled, double tTouch)
 {
   IOSTouchSlot *s = touch ? IOSTouch_FindSlot(touch) : NULL;
   if (!s) return;
   unsigned int ulLifted = 0;
-  if (s->role == ROLE_BUTTON) {
+  if (s->role == ROLE_WHEEL && _bWheelOpen) {
+    if (bCancelled) {
+      // the opener taken away: the wheel stays open, to tap
+      if (s->bWheelOpener) _bWheelTapMode = 1;
+    }
+    else if (s->bWheelOpener && s->bWheelHeld) {
+      // opened by holding still, lifted without sliding: it stays open, to tap
+    }
+    else if (s->bWheelOpener && !_bWheelTapMode) {
+      // the slide's lift: what it points at, or no change -- or, if it never
+      // slid out of the dead zone, the wheel stays open to tap
+      IOSTouch_WheelAim(s, x, y);
+      if (!s->bArmed) _bWheelTapMode = 1;
+      else IOSTouch_WheelClose(s->wheelSlot);
+    }
+    else {
+      // A tap: on a weapon it can switch to picks it; on one it can't the
+      // wheel stays open; anywhere else (the weapon in hand, the middle, the
+      // gap, off the ring, a button) it closes with no change -- except off
+      // the ring while the opener is still sliding and pointing: that finger
+      // is only resting, the slide goes on
+      const int slice = IOSTouch_WheelSliceAt(x, y, s->wheelSlot);
+      int bSliding = 0;
+      for (int k = 0; k < IOSTOUCH_MAX_TOUCHES; k++) {
+        const IOSTouchSlot *o = &_aSlots[k];
+        if (o != s && o->touch && o->role == ROLE_WHEEL && o->bWheelOpener && o->bArmed && !_bWheelTapMode) bSliding = 1;
+      }
+      if (!(slice == -1 && bSliding) && !(slice >= 0 && IOSTouch_WheelSlotState(slice) != WSTATE_READY)) {
+        IOSTouch_WheelClose(slice);
+      }
+    }
+  }
+  else if (IOSTouch_IsWheelPress(s)) {
+    // NEXT WPN, PREV WPN lifted before the wheel opened
+    const IOSTouchButton *b = &_aButtons[s->button];
+    if (_aButtonHeld[s->button] > 0) _aButtonHeld[s->button]--;
+    _afWheelRing[s->button == BTN_PREVWPN] = 0.0f;
+    if (bCancelled || s->bFired) {
+      // iOS took it, or it slid or held while the wheel couldn't open: nothing
+    }
+    else if (hypot(x - s->xDown, y - s->yDown) >= IOSTOUCH_WHEEL_OPEN_SLIDE) {
+      // a flick, with no move in between: as a slide, then its lift
+      if (IOSTouch_WheelCanOpen()) {
+        IOSTouch_WheelOpen(s, 0);
+        IOSTouch_WheelAim(s, x, y);
+        if (s->bArmed) IOSTouch_WheelClose(s->wheelSlot);
+        else _bWheelTapMode = 1;
+      }
+    }
+    else if (tTouch - s->tDownTouch < IOSTOUCH_WHEEL_HOLD) {
+      // a quick tap (by the touch's own clock, so a slow frame between the
+      // two doesn't make it long): one press of NEXT / PREV
+      ulLifted |= b->ulAction;
+    }
+    else if (IOSTouch_WheelCanOpen()) {
+      // held long enough, but lifted before a frame could see it (a slow
+      // one): the hold, the wheel open to tap
+      IOSTouch_WheelOpen(s, 1);
+    }
+  }
+  else if (s->role == ROLE_BUTTON) {
     const IOSTouchButton *b = &_aButtons[s->button];
     if (_aButtonHeld[s->button] > 0) _aButtonHeld[s->button]--;
     // A tap so quick that no game tick saw it held still counts as one press
@@ -1048,6 +2194,7 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
     IOSTouch_SetMoveFromStick();
   }
   memset(s, 0, sizeof(*s));
+  if (_bWheelOpen) IOSTouch_WheelUpdateHot();
   IOSTouch_SetHeld(IOSTouch_HeldButtons(), ulLifted);
 }
 
@@ -1064,6 +2211,34 @@ static void IOSTouch_TickHolds(double now)
   // tDown to then. This costs at most a frame.
   const double known = _tLastTick;
   _tLastTick = now;
+  // NEXT WPN and PREV WPN held still (they haven't slid, or the wheel would
+  // be open): known to be held IOSTOUCH_WHEEL_HOLD, the wheel opens to tap a
+  // slice; until then the ring fills. The first to get there opens it (which
+  // drops the other). This comes before the QUICK SAVE, QUICK LOAD, MENU and
+  // messages box holds: one that completes in the same tick is then dropped
+  // by the wheel opening, which ignores every other touch, rather than saving
+  // or loading under the wheel. While the wheel couldn't open (the player
+  // dead...) there is no ring, and a press held that long is no tap either.
+  float afWheelRing[2] = { 0.0f, 0.0f };
+  for (int i = 0; i < IOSTOUCH_MAX_TOUCHES && !_bWheelOpen; i++) {
+    IOSTouchSlot *s = &_aSlots[i];
+    if (!IOSTouch_IsWheelPress(s) || s->bFired) continue;
+    if (known - s->tDown >= IOSTOUCH_WHEEL_HOLD) {
+      if (IOSTouch_WheelCanOpen()) {
+        IOSTouch_WheelOpen(s, 1);
+        afWheelRing[0] = afWheelRing[1] = 0.0f;
+        break; // (every other touch is ignored now)
+      }
+      s->bFired = 1;
+      continue;
+    }
+    if (IOSTouch_WheelCanOpen()) {
+      float *pf = &afWheelRing[s->button == BTN_PREVWPN];
+      *pf = fmaxf(*pf, (float)fmax(0.0, (known - s->tDown) / IOSTOUCH_WHEEL_HOLD));
+    }
+  }
+  _afWheelRing[0] = afWheelRing[0];
+  _afWheelRing[1] = afWheelRing[1];
   // the furthest along of QUICK SAVE's and of QUICK LOAD's holds (a touch each)
   float fSaveRing = 0.0f, fLoadRing = 0.0f, fMessagesRing = 0.0f;
   int iDone = -1; // the quick hold that completed: BTN_QUICKSAVE or BTN_QUICKLOAD
@@ -1319,7 +2494,8 @@ static int IOSTouch_GyroThumbDown(void)
 // where it is (the frame it lifted in counts for nothing, as does the frame
 // the first one lands in) and nothing springs back, and touching again
 // carries on from there, from however the phone is held by then. Never
-// while MENU's tray is open, just after the screen turned round to the
+// while MENU's tray or the weapon wheel is open (the frame it closes in
+// counts for nothing either, so nothing jumps), just after the screen turned round to the
 // other landscape side, nor after a frame that took too long; and only
 // while the game reads the touch controls, so nothing is left waiting for
 // it across a pause.
@@ -1338,7 +2514,7 @@ static void IOSTouch_GyroFrame(int bShown, int bActive, int side, double now)
   os_unfair_lock_unlock(&_gyroLock);
 
   const int bOk = _bGyroRunning && (_iGyroMode == IOSTOUCH_GYRO_ALWAYS || IOSTouch_GyroThumbDown()) && !_bTrayOpen
-                  && now - _tGyroTurnedRound >= IOSTOUCH_GYRO_TURN_HOLD;
+                  && now - _tGyroTurnedRound >= IOSTOUCH_GYRO_TURN_HOLD && !IOSTouch_WheelIsOpen();
   const int bUse = bOk && _bGyroWasOk && now - _tGyroLastFrame <= IOSTOUCH_GYRO_MAX_FRAME;
   _bGyroWasOk = bOk;
   _tGyroLastFrame = now;
@@ -1355,7 +2531,8 @@ static void IOSTouch_GyroFrame(int bShown, int bActive, int side, double now)
   os_unfair_lock_unlock(&_lock);
 }
 
-// Lets go of every touch and closes the tray (on every change of mode);
+// Lets go of every touch and closes the tray and the weapon wheel (on every
+// change of mode);
 // bReading: whether the game gets input now
 static void IOSTouch_ResetTouches(int bReading)
 {
@@ -1369,6 +2546,11 @@ static void IOSTouch_ResetTouches(int bReading)
   _tLastTick = 0.0;
   _bFpsBase = 0;
   _bGyroWasOk = 0; // the next frame's motion doesn't count
+  // the weapon wheel closes, picking nothing (the game no longer held)
+  _bWheelOpen = _bWheelTapMode = 0;
+  _iWheelHot = -1;
+  _ctWheelTicks = 0;
+  _afWheelRing[0] = _afWheelRing[1] = 0.0f;
   IOSTouch_ResetShared(bReading);
 }
 
@@ -1470,6 +2652,16 @@ static int IOSTouch_CutoutMayBeRight(UIView *v)
   return IOSTouch_ScreenSide(v) != -1;
 }
 
+// What the open weapon wheel was last drawn for
+typedef struct {
+  int iMap;
+  double cx, cy, R1;
+  int iHot, bCancel, bTapMode, iWanted;
+  unsigned int ulOwned, ulReady;
+  int bInfinite;
+  int aiAmmo[IOSTOUCH_WPN_MAX], aiMax[IOSTOUCH_WPN_MAX];
+} IOSTouchWheelKey;
+
 @interface IOSTouchOverlay : UIView {
   UIView *stickBase;
   UIView *stickKnob;
@@ -1487,11 +2679,33 @@ static int IOSTouch_CutoutMayBeRight(UIView *v)
   int iGyroModeSaved;     // tilt aiming's mode and sensitivity as the app's settings have them
   int iGyroSensSaved;
   int iGyroLabels;        // what GYRO's and SENS's labels say (-1: not yet set)
+  CAShapeLayer *aWheelRings[2]; // NEXT WPN's and PREV WPN's holds (they open the weapon wheel)
+  // The weapon wheel (makeWheel): the dim and its disc, each slice, its icon
+  // (twice for the two colts), count and name, the needle, the middle's
+  // lines, "cancel"; the haptic tick; the icons as images (each weapon's,
+  // for each tint), whether it shows, what it was drawn for
+  UIView *wheelView;
+  CAShapeLayer *wheelDisc;
+  CAShapeLayer *aSliceLayers[IOSTOUCH_WHEEL_MAX];
+  CALayer *aIconLayers[IOSTOUCH_WHEEL_MAX][2];
+  UILabel *aCountLabels[IOSTOUCH_WHEEL_MAX];
+  UILabel *aNameLabels[IOSTOUCH_WHEEL_MAX];
+  CAShapeLayer *wheelNeedle;
+  UILabel *aMiddleLabels[IOSTOUCH_MIDDLE_LINES];
+  UILabel *wheelCancelLabel;
+  UISelectionFeedbackGenerator *wheelTick;
+  id aIconImages[IOSTOUCH_WPN_MAX][WICON_NUM];
+  int bWheelShown;
+  int bWheelRebuild;
+  int iWheelLifted; // the button lifted above the dim, + 1 (0: none)
+  IOSTouchWheelKey wheelKey;
 }
 - (void)resetAll;
 - (void)tick;
 - (void)placeMessages;
 - (void)refreshButtonLooks;
+- (void)refreshStick;
+- (void)syncWheel;
 @end
 
 @implementation IOSTouchOverlay
@@ -1577,6 +2791,11 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     [aButtonViews[BTN_QUICKLOAD].layer addSublayer:loadRing];
     menuRing = IOSTouch_MakeHoldRing(_aButtons[BTN_MENU].radius);
     [aButtonViews[BTN_MENU].layer addSublayer:menuRing];
+    // ...and NEXT WPN's and PREV WPN's, held still to open the weapon wheel to tap
+    for (int k = 0; k < 2; k++) {
+      aWheelRings[k] = IOSTouch_MakeHoldRing(_aButtons[k ? BTN_PREVWPN : BTN_NEXTWPN].radius);
+      [aButtonViews[k ? BTN_PREVWPN : BTN_NEXTWPN].layer addSublayer:aWheelRings[k]];
+    }
 
     // The HUD's unread messages box lights up while a finger is on it, and a
     // ring round it fills while it is held (as MENU's): laid out over the box
@@ -1647,6 +2866,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     [self addSubview:stickBase];
     [self addSubview:stickKnob];
 
+    [self makeWheel];
     [self refreshButtonLooks];
   }
   return self;
@@ -1675,6 +2895,9 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   fpsLabel.center = CGPointMake(_fFpsX, _fFpsY);
 
   [self placeMessages];
+  // the open weapon wheel round the new middle
+  bWheelRebuild = 1;
+  if (bWheelShown) [self refreshWheel];
 }
 
 // Over the unread messages box where the HUD drew it last (or where it sits),
@@ -1740,7 +2963,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     UILabel *l = aButtonViews[i];
     const int bShown = IOSTouch_IsShown(i);
     if (l.hidden == bShown) l.hidden = !bShown;
-    int bHeld = _aButtonHeld[i] != 0;
+    int bHeld = _aButtonHeld[i] != 0 || (_bWheelOpen && i == _iWheelButton); // (the weapon wheel's opener, lit)
     // A thumb still on MENU after its tray opened lights the tray button it is over
     for (int t = 0; t < IOSTOUCH_MAX_TOUCHES && !bHeld; t++) {
       const IOSTouchSlot *s = &_aSlots[t];
@@ -1807,7 +3030,324 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   [self setRing:saveRing progress:_fSaveRing];
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
+  [self setRing:aWheelRings[0] progress:_afWheelRing[0]];
+  [self setRing:aWheelRings[1] progress:_afWheelRing[1]];
   [self refreshMessages];
+  [self syncWheel];
+}
+
+// ------------------------------------------------------------ weapon wheel
+
+// The middle's fonts (IOSTouch_WheelMiddleLayout measures with these)
+static UIFont *IOSTouch_MiddleFont(int iKind, CGFloat size)
+{
+  if (iKind == WLINE_TITLE) return [UIFont boldSystemFontOfSize:size];
+  return [UIFont systemFontOfSize:size weight:UIFontWeightSemibold];
+}
+
+static double IOSTouch_MiddleTextWidth(const char *str, int iKind, double fSize, void *pUser)
+{
+  (void)pUser;
+  NSString *s = [NSString stringWithUTF8String:str];
+  return [s sizeWithAttributes:@{ NSFontAttributeName : IOSTouch_MiddleFont(iKind, fSize) }].width;
+}
+
+static UIColor *IOSTouch_Colour(const float af[4])
+{
+  return [UIColor colorWithRed:af[0] green:af[1] blue:af[2] alpha:af[3]];
+}
+
+// A slice's shape: from deg0 round to deg1 (counter-clockwise), radius r0 to r1
+static UIBezierPath *IOSTouch_WedgePath(CGPoint c, CGFloat deg0, CGFloat deg1, CGFloat r0, CGFloat r1)
+{
+  // UIKit's angles go clockwise (y points down)
+  const CGFloat a0 = -deg1 * M_PI / 180.0, a1 = -deg0 * M_PI / 180.0;
+  UIBezierPath *p = [UIBezierPath bezierPathWithArcCenter:c radius:r1 startAngle:a0 endAngle:a1 clockwise:YES];
+  [p addArcWithCenter:c radius:r0 startAngle:a1 endAngle:a0 clockwise:NO];
+  [p closePath];
+  return p;
+}
+
+// An icon (RGBA, not premultiplied) as an image; its owner releases it
+static CGImageRef IOSTouch_MakeIconImage(const unsigned char *pub, int w, int h)
+{
+  CFDataRef data = CFDataCreate(NULL, pub, (CFIndex)w * h * 4);
+  CGDataProviderRef dp = CGDataProviderCreateWithCFData(data);
+  CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+  CGImageRef im = CGImageCreate(w, h, 8, 32, (size_t)w * 4, cs, (CGBitmapInfo)kCGBitmapByteOrderDefault | (CGBitmapInfo)kCGImageAlphaLast,
+                                dp, NULL, true, kCGRenderingIntentDefault);
+  CGColorSpaceRelease(cs);
+  CGDataProviderRelease(dp);
+  CFRelease(data);
+  return im;
+}
+
+// The wheel's parts, made once, hidden until it opens: a dim over the game,
+// the dark disc, the slices on it, each slice's icon (twice for the two
+// colts), its count and its name (shown instead of an icon the game couldn't
+// give), the needle, the middle's lines and "cancel" in the gap
+- (void)makeWheel
+{
+  wheelView = [[UIView alloc] initWithFrame:self.bounds];
+  wheelView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  wheelView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.45];
+  wheelView.userInteractionEnabled = NO; // touches are the overlay's
+  wheelView.hidden = YES;
+  wheelDisc = [CAShapeLayer layer];
+  wheelDisc.fillColor = [UIColor colorWithWhite:0.0 alpha:0.85].CGColor;
+  [wheelView.layer addSublayer:wheelDisc];
+  for (int i = 0; i < IOSTOUCH_WHEEL_MAX; i++) {
+    CAShapeLayer *sl = [CAShapeLayer layer];
+    sl.lineJoin = kCALineJoinRound;
+    sl.hidden = YES;
+    aSliceLayers[i] = sl;
+    [wheelView.layer addSublayer:sl];
+  }
+  for (int i = 0; i < IOSTOUCH_WHEEL_MAX; i++) {
+    for (int k = 1; k >= 0; k--) { // [1] (the two colts' back one) under [0]
+      CALayer *l = [CALayer layer];
+      l.zPosition = 2.0;
+      l.hidden = YES;
+      l.contentsGravity = kCAGravityResize;
+      l.magnificationFilter = kCAFilterLinear;
+      l.minificationFilter = kCAFilterLinear;
+      aIconLayers[i][k] = l;
+      [wheelView.layer addSublayer:l];
+    }
+    UILabel *c = [[UILabel alloc] initWithFrame:CGRectZero];
+    c.textAlignment = NSTextAlignmentCenter;
+    c.layer.zPosition = 2.0;
+    c.hidden = YES;
+    aCountLabels[i] = c;
+    [wheelView addSubview:c];
+    UILabel *n = [[UILabel alloc] initWithFrame:CGRectZero];
+    n.textAlignment = NSTextAlignmentCenter;
+    n.numberOfLines = 2;
+    n.adjustsFontSizeToFitWidth = YES;
+    n.minimumScaleFactor = 0.5;
+    n.layer.zPosition = 2.0;
+    n.hidden = YES;
+    aNameLabels[i] = n;
+    [wheelView addSubview:n];
+  }
+  wheelNeedle = [CAShapeLayer layer];
+  wheelNeedle.lineWidth = 3.0;
+  wheelNeedle.lineCap = kCALineCapRound;
+  wheelNeedle.fillColor = [UIColor clearColor].CGColor;
+  wheelNeedle.zPosition = 2.0;
+  wheelNeedle.hidden = YES;
+  [wheelView.layer addSublayer:wheelNeedle];
+  for (int i = 0; i < IOSTOUCH_MIDDLE_LINES; i++) {
+    UILabel *l = [[UILabel alloc] initWithFrame:CGRectZero];
+    l.textAlignment = NSTextAlignmentCenter;
+    l.layer.zPosition = 2.0;
+    l.hidden = YES;
+    aMiddleLabels[i] = l;
+    [wheelView addSubview:l];
+  }
+  wheelCancelLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 80, 14)];
+  wheelCancelLabel.textAlignment = NSTextAlignmentCenter;
+  wheelCancelLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
+  wheelCancelLabel.textColor = [UIColor colorWithWhite:0.59 alpha:1.0];
+  wheelCancelLabel.text = @"cancel";
+  wheelCancelLabel.layer.zPosition = 2.0;
+  [wheelView addSubview:wheelCancelLabel];
+  [self addSubview:wheelView];
+  wheelTick = [[UISelectionFeedbackGenerator alloc] init];
+  memset(&wheelKey, 0, sizeof(wheelKey));
+}
+
+// The icons the game has handed over since, as images: as they are, and
+// greyed for no ammo and for not found yet
+- (void)makeIconImages
+{
+  const unsigned int ulNew = _ulIconsNew;
+  _ulIconsNew = 0;
+  for (int w = 0; w < IOSTOUCH_WPN_MAX; w++) {
+    if (!(ulNew & (1u << w))) continue;
+    const IOSTouchIcon *pi = &_aIcons[w];
+    for (int st = 0; st < WICON_NUM; st++) {
+      aIconImages[w][st] = pi->bHave ? CFBridgingRelease(IOSTouch_MakeIconImage(pi->aub[st], pi->w, pi->h)) : nil;
+    }
+  }
+  if (ulNew) bWheelRebuild = 1;
+}
+
+// Draws the open wheel as the core says: made again only when something
+// changed (what is pointed at, the slices' states, an icon, the layout); the
+// needle follows the thumb every time
+- (void)refreshWheel
+{
+  IOSTouchWheelKey key;
+  memset(&key, 0, sizeof(key));
+  key.iMap = _iWheelMap;
+  key.cx = _fWheelCX;
+  key.cy = _fWheelCY;
+  key.R1 = _fWheelR1;
+  key.iHot = IOSTouch_WheelPointed(&key.bCancel, NULL);
+  key.bTapMode = _bWheelTapMode;
+  key.iWanted = _wpn.iWanted;
+  key.ulOwned = _wpn.ulOwned;
+  key.ulReady = _wpn.ulReady;
+  key.bInfinite = _wpn.bInfiniteAmmo;
+  memcpy(key.aiAmmo, _wpn.aiAmmo, sizeof(key.aiAmmo));
+  memcpy(key.aiMax, _wpn.aiMaxAmmo, sizeof(key.aiMax));
+  const IOSTouchWheelMap *m = IOSTouch_WheelMapOf(_iWheelMap);
+  const CGPoint c = CGPointMake(_fWheelCX, _fWheelCY);
+  const double R0 = _fWheelR0, R1 = _fWheelR1;
+
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (bWheelRebuild || memcmp(&key, &wheelKey, sizeof(key)) != 0) {
+    bWheelRebuild = 0;
+    wheelKey = key;
+    wheelView.frame = self.bounds;
+    wheelDisc.path = [UIBezierPath bezierPathWithArcCenter:c radius:R1 + 14.0 startAngle:0.0 endAngle:2.0 * M_PI clockwise:YES].CGPath;
+    const IOSTouchWheelFit *f = IOSTouch_WheelFit();
+    for (int i = 0; i < IOSTOUCH_WHEEL_MAX; i++) {
+      const int bOn = i < m->ctSlots;
+      aSliceLayers[i].hidden = !bOn;
+      aCountLabels[i].hidden = aNameLabels[i].hidden = YES;
+      aIconLayers[i][0].hidden = aIconLayers[i][1].hidden = YES;
+      if (!bOn) continue;
+      IOSTouchWheelLook look;
+      IOSTouch_WheelSlotLook(i, key.iHot, &look);
+      const double deg = IOSTouch_WheelSlotDeg(m, i), half = m->fSliceDeg * 0.5 - 1.0; // a degree in from each edge
+      CAShapeLayer *L = aSliceLayers[i];
+      L.path = IOSTouch_WedgePath(c, deg - half, deg + half, R0, R1 + (look.bPopped ? IOSTOUCH_WHEEL_POP : 0.0)).CGPath;
+      L.fillColor = IOSTouch_Colour(look.afFill).CGColor;
+      L.strokeColor = IOSTouch_Colour(look.afEdge).CGColor;
+      L.lineWidth = look.fLine;
+      L.zPosition = look.bPopped ? 1.0 : 0.0;
+      IOSTouchRect rIcon, rRow;
+      IOSTouch_WheelSlotRects(i, look.bPopped, look.iCount >= 0, &rIcon, &rRow);
+      const CGRect ri = CGRectMake(rIcon.x0, rIcon.y0, rIcon.x1 - rIcon.x0, rIcon.y1 - rIcon.y0);
+      const int w = m->aSlots[i].iWeapon;
+      id image = aIconImages[IOSTouch_WheelIconOf(w)][look.iIcon];
+      if (image) {
+        if (w == 3) {
+          // the two colts: the colt's icon twice, the back one up and left
+          const CGFloat s = ri.size.width * 0.82, d = ri.size.width - s;
+          aIconLayers[i][1].frame = CGRectMake(ri.origin.x, ri.origin.y, s, s);
+          aIconLayers[i][1].contents = image;
+          aIconLayers[i][1].opacity = 0.85;
+          aIconLayers[i][1].hidden = NO;
+          aIconLayers[i][0].frame = CGRectMake(ri.origin.x + d, ri.origin.y + d, s, s);
+        }
+        else {
+          aIconLayers[i][0].frame = ri;
+        }
+        aIconLayers[i][0].contents = image;
+        aIconLayers[i][0].hidden = NO;
+      }
+      else {
+        // no icon (yet): the name
+        UILabel *n = aNameLabels[i];
+        n.text = [[NSString stringWithUTF8String:m->aSlots[i].strName] stringByReplacingOccurrencesOfString:@" " withString:@"\n"];
+        n.font = [UIFont systemFontOfSize:9.0 * f->k weight:UIFontWeightSemibold];
+        n.textColor = IOSTouch_Colour(look.afText);
+        n.bounds = CGRectMake(0, 0, ri.size.width, ri.size.height); // (the fitted block's width: it shrinks to fit)
+        n.center = CGPointMake(CGRectGetMidX(ri), CGRectGetMidY(ri));
+        n.hidden = NO;
+      }
+      if (look.iCount >= 0) {
+        UILabel *cl = aCountLabels[i];
+        cl.text = [NSString stringWithFormat:@"%d", look.iCount];
+        cl.font = [UIFont monospacedDigitSystemFontOfSize:IOSTOUCH_WHEEL_AMMO_FONT * f->k weight:UIFontWeightSemibold];
+        cl.textColor = IOSTouch_Colour(look.afText);
+        cl.bounds = CGRectMake(0, 0, rRow.x1 - rRow.x0 + 6.0, ceil(IOSTOUCH_WHEEL_AMMO_FONT * f->k * 1.25)); // (a whole line)
+        cl.center = CGPointMake((rRow.x0 + rRow.x1) * 0.5, (rRow.y0 + rRow.y1) * 0.5); // (the digits about centred in it)
+        cl.hidden = NO;
+      }
+    }
+    // the middle
+    IOSTouchWheelMiddle mid;
+    IOSTouch_WheelMiddleState(&mid);
+    IOSTouchMiddleLine aLines[IOSTOUCH_MIDDLE_LINES];
+    const int ct = IOSTouch_WheelMiddleLayout(R0, &mid, IOSTouch_MiddleTextWidth, NULL, aLines);
+    for (int j = 0; j < IOSTOUCH_MIDDLE_LINES; j++) {
+      UILabel *l = aMiddleLabels[j];
+      l.hidden = j >= ct;
+      if (j >= ct) continue;
+      const IOSTouchMiddleLine *ln = &aLines[j];
+      l.text = [NSString stringWithUTF8String:ln->str];
+      l.font = IOSTouch_MiddleFont(ln->iKind, ln->fSize);
+      if (ln->iKind == WLINE_TITLE) {
+        float af[4];
+        if (mid.iTitleLook == WTITLE_SLOT) IOSTouch_WheelMix(mid.iColour, 1.0, af);
+        else IOSTouch_Grey(mid.iTitleLook == WTITLE_WHITE ? 1.0 : 0.63, 1.0, af);
+        l.textColor = IOSTouch_Colour(af);
+      }
+      else {
+        l.textColor = [UIColor colorWithWhite:(ln->iKind == WLINE_COUNT ? 0.9 : 0.8) alpha:1.0];
+      }
+      l.bounds = CGRectMake(0, 0, 2.0 * R0, ceil(ln->fSize * 1.18) + 2.0);
+      l.center = CGPointMake(c.x, c.y + ln->fDY);
+    }
+    wheelCancelLabel.center = CGPointMake(c.x, c.y + R1 - 22.0);
+    wheelCancelLabel.hidden = key.iHot == IOSTOUCH_WHEEL_CANCEL;
+  }
+  double x0, y0, x1, y1;
+  float af[4];
+  if (IOSTouch_WheelNeedle(&x0, &y0, &x1, &y1, af)) {
+    UIBezierPath *p = [UIBezierPath bezierPath];
+    [p moveToPoint:CGPointMake(x0, y0)];
+    [p addLineToPoint:CGPointMake(x1, y1)];
+    wheelNeedle.path = p.CGPath;
+    wheelNeedle.strokeColor = IOSTouch_Colour(af).CGColor;
+    wheelNeedle.hidden = NO;
+  }
+  else {
+    wheelNeedle.hidden = YES;
+  }
+  [CATransaction commit];
+}
+
+// The opener's button (NEXT WPN or PREV WPN) lifted above the wheel's dim
+// (b), or put back where it was made, just above the button before it
+// (-1), so the stick, the FPS readout and the tray draw over it again
+- (void)liftWheelButton:(int)b
+{
+  if (iWheelLifted > 0) [self insertSubview:aButtonViews[iWheelLifted - 1] aboveSubview:aButtonViews[iWheelLifted - 2]];
+  iWheelLifted = 0;
+  if (b >= 0) {
+    [self insertSubview:aButtonViews[b] aboveSubview:wheelView];
+    iWheelLifted = b + 1;
+  }
+}
+
+// After every touch, frame and reset: the wheel shows while the core has it
+// open (the opener's button lifted above the dim), and ticks as the thumb
+// moves onto another slice
+- (void)syncWheel
+{
+  if (_ulIconsNew) [self makeIconImages];
+  if (_bWheelOpen && !bWheelShown) {
+    bWheelShown = 1;
+    bWheelRebuild = 1;
+    [self bringSubviewToFront:wheelView];
+    [self liftWheelButton:_iWheelButton];
+    [wheelTick prepare];
+    wheelView.hidden = NO;
+    [self refreshButtonLooks];
+    [self refreshStick];
+  }
+  else if (!_bWheelOpen && bWheelShown) {
+    bWheelShown = 0;
+    wheelView.hidden = YES;
+    [self liftWheelButton:-1];
+    [self refreshButtonLooks];
+  }
+  else if (bWheelShown && iWheelLifted != _iWheelButton + 1) {
+    // (closed and opened again from the other button between two syncs)
+    [self liftWheelButton:_iWheelButton];
+    [self refreshButtonLooks];
+  }
+  if (bWheelShown) [self refreshWheel];
+  if (_ctWheelTicks > 0) {
+    if (bWheelShown) [wheelTick selectionChanged];
+    _ctWheelTicks = 0;
+  }
 }
 
 // ------------------------------------------------------------ touches
@@ -1818,7 +3358,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   const double W = self.bounds.size.width;
   for (UITouch *t in touches) {
     CGPoint p = [t locationInView:self];
-    IOSTouch_TouchBegan((__bridge const void *)t, p.x, p.y, W, now);
+    IOSTouch_TouchBegan((__bridge const void *)t, p.x, p.y, W, now, t.timestamp);
   }
   [self refreshAll];
 }
@@ -1838,13 +3378,14 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   if (bLooksChanged) [self refreshButtonLooks];
   [self refreshStick];
   [self refreshMessages];
+  [self syncWheel];
 }
 
 - (void)endTouches:(NSSet<UITouch *> *)touches cancelled:(int)bCancelled
 {
   for (UITouch *t in touches) {
     CGPoint p = [t locationInView:self];
-    IOSTouch_TouchEnded((__bridge const void *)t, p.x, p.y, bCancelled);
+    IOSTouch_TouchEnded((__bridge const void *)t, p.x, p.y, bCancelled, t.timestamp);
   }
   [self refreshAll];
 }
@@ -1852,8 +3393,9 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self endTouches:touches cancelled:0]; }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self endTouches:touches cancelled:1]; }
 
-// Once per frame while shown: the QUICK SAVE, QUICK LOAD, MENU and unread
-// messages holds, the context buttons and the FPS readout
+// Once per frame while shown: the NEXT WPN, PREV WPN, QUICK SAVE, QUICK
+// LOAD, MENU and unread messages holds, the weapon wheel, the context
+// buttons and the FPS readout
 - (void)tick
 {
   const double now = CACurrentMediaTime();
@@ -1864,7 +3406,10 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   [self setRing:saveRing progress:_fSaveRing];
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
+  [self setRing:aWheelRings[0] progress:_afWheelRing[0]];
+  [self setRing:aWheelRings[1] progress:_afWheelRing[1]];
   [self refreshMessages];
+  [self syncWheel]; // (a hold may have opened the weapon wheel, or the game closed it)
 
   // BOMB says how many there are (IOSTouch_BombLabel)
   const int ctBombs = _hud.bValid ? _hud.ctBombs : 0;
@@ -2055,7 +3600,15 @@ void IOSTouch_Hide(void)
 
 // Called once per game tick. Held buttons report down for as long as they're
 // held; a queued quick tap is reported down for IOSTOUCH_PULSE_READS ticks
-// and then up for one, so the game sees each one as its own press.
+// and then up for one, so the game sees each one as its own press. The
+// weapon wheel's pick goes in the select field the same way, for
+// IOSTOUCH_PULSE_READS ticks and then 0 for one (two picks in a row would
+// otherwise run together: the game takes only the field's new bits); and
+// never in a tick NEXT or PREV is read in, nor the tick after it (the game
+// does the field first, then NEXT/PREV on top), whichever came first: a NEXT
+// or PREV tap still waiting goes after a pick waiting or being read (it can
+// only have come after the pick: opening the wheel drops the taps waiting),
+// and a pick waits for a tap already being read and its gap.
 void IOSTouch_ReadInput(IOSTouchInput *pInput)
 {
   memset(pInput, 0, sizeof(*pInput));
@@ -2063,11 +3616,15 @@ void IOSTouch_ReadInput(IOSTouchInput *pInput)
   if (_bReading) {
     pInput->fMoveX = _fMoveX;
     pInput->fMoveY = _fMoveY;
+    const unsigned int ulWeaponKeys = IOSTOUCH_NEXTWEAPON | IOSTOUCH_PREVWEAPON;
+    const int bPickBusy = _iPickPending || _iPickReads > 0 || _bPickGap; // (a NEXT/PREV tap waits)
+    int bKeysBusy = 0;                                  // NEXT/PREV read now, or this is the tick after
     for (int i = 0; i < IOSTOUCH_NUMBUTTONS; i++) {
       const unsigned int ul = 1u << i;
       const int bHeld = (_ulHeld & ul) != 0;
       int bDown = bHeld;
       if (bHeld) _ulSeen |= ul;
+      if ((ul & ulWeaponKeys) && (_aPulseReads[i] || _aPulseGap[i])) bKeysBusy = 1;
       if (_aPulseReads[i]) {
         if (--_aPulseReads[i] == 0) _aPulseGap[i] = 1;
         bDown = 1;
@@ -2075,13 +3632,28 @@ void IOSTouch_ReadInput(IOSTouchInput *pInput)
       else if (_aPulseGap[i]) {
         _aPulseGap[i] = 0;
       }
-      else if (_aPulseQueue[i]) {
+      else if (_aPulseQueue[i] && !((ul & ulWeaponKeys) && bPickBusy)) {
         _aPulseQueue[i]--;
         _aPulseReads[i] = IOSTOUCH_PULSE_READS - 1;
         if (!_aPulseReads[i]) _aPulseGap[i] = 1;
         bDown = 1;
       }
+      if ((ul & ulWeaponKeys) && (bDown || _aPulseReads[i] || _aPulseGap[i])) bKeysBusy = 1;
       if (bDown) pInput->ulButtons |= ul;
+    }
+    if (_iPickReads > 0) {
+      if (--_iPickReads == 0) _bPickGap = 1;
+      pInput->iSelectWeapon = _iPickNow;
+    }
+    else if (_bPickGap) {
+      _bPickGap = 0;
+    }
+    else if (_iPickPending && !bKeysBusy) {
+      _iPickNow = _iPickPending;
+      _iPickPending = 0;
+      _iPickReads = IOSTOUCH_PULSE_READS - 1;
+      if (!_iPickReads) _bPickGap = 1;
+      pInput->iSelectWeapon = _iPickNow;
     }
   }
   os_unfair_lock_unlock(&_lock);
