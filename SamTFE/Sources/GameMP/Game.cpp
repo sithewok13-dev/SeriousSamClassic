@@ -783,36 +783,37 @@ FLOAT CControls::GetAxisValue(INDEX iAxis)
 #endif
 
 // The touch controls' buttons as the player's button bits for this tick.
-// USE works like the default Use key (ctl_bUseOrComputer): use, and tapped
-// again within ctl_tmComputerDoubleClick NETRICSA -- or both at once, if the
-// player's settings say NETRICSA opens on a single click. But it never works
-// the sniper scope, which that key does when there is nothing to use: it
-// sends no USE_HELD or SNIPER_USE, and USE_NOZOOM with its press. ZOOM is
-// the scope: plain use (with the sniper rifle: scope on/off, held: zoom in).
-static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
+// USE is a plain use, once as it goes down: unlike the default Use key
+// (ctl_bUseOrComputer), it never opens NETRICSA -- not when tapped again
+// within ctl_tmComputerDoubleClick, nor on a single click if the player's
+// settings say so (a thumb did that by accident). NETRICSA is a hold on the
+// HUD's messages box (the envelope), which comes as IOSTOUCH_COMPUTER: the
+// Computer key. Nor does USE work the sniper scope, which that key does
+// when there is nothing to use: it sends no USE_HELD or SNIPER_USE, and
+// USE_NOZOOM with its press. ZOOM is the scope: plain use (with the sniper
+// rifle: scope on/off, held: zoom in). A keyboard's or controller's own Use
+// key still works as on PC.
+// NETRICSA's press gets its tick to itself: the player takes a new use in
+// the same tick instead (with something to use, or the sniper rifle), so a
+// USE or ZOOM press that comes with it waits for the next tick.
+static ULONG IOS_TouchButtonActions(ULONG ulTouch)
 {
   static ULONG ulTouchLast = 0;
-  static TIME tmLastUse = -100.0;
+  static ULONG ulHeldBack = 0;  // USE or ZOOM pressed with NETRICSA's press, for the next tick
+  const ULONG ulNew = ulTouch&~ulTouchLast;
+  const ULONG ulHoldBack = (ulNew&IOSTOUCH_COMPUTER) ? (ulNew&(IOSTOUCH_USE|IOSTOUCH_ZOOM)) : 0;
+  ulTouch = (ulTouch&~ulHoldBack)|ulHeldBack;
+  ulHeldBack = ulHoldBack;
   ULONG ulActions = 0;
   if (ulTouch&IOSTOUCH_FIRE)       ulActions |= IOS_PLACT_FIRE;
   if (ulTouch&IOSTOUCH_NEXTWEAPON) ulActions |= IOS_PLACT_WEAPON_NEXT;
   if (ulTouch&IOSTOUCH_PREVWEAPON) ulActions |= IOS_PLACT_WEAPON_PREV;
   if (ulTouch&IOSTOUCH_BOMB)       ulActions |= IOS_PLACT_FIREBOMB;
   if (ulTouch&IOSTOUCH_ZOOM)       ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
-  if (ulTouch&IOSTOUCH_USE) {
-    // just pressed
-    if (!(ulTouchLast&IOSTOUCH_USE)) {
-      const CPlayerSettings *pps = (const CPlayerSettings *)pc.pc_aubAppearance;
-      const FLOAT tmDoubleClick = _pShell->GetFLOAT("ctl_tmComputerDoubleClick");
-      const TIME tmNow = _pTimer->GetRealTimeTick();
-      if (tmDoubleClick==0 || (pps->ps_ulFlags&PSF_COMPSINGLECLICK)) {
-        ulActions |= IOS_PLACT_USE|IOS_PLACT_COMPUTER;
-      } else {
-        ulActions |= (tmNow<=tmLastUse+tmDoubleClick) ? IOS_PLACT_COMPUTER : IOS_PLACT_USE;
-      }
-      ulActions |= IOS_PLACT_USE_NOZOOM;
-      tmLastUse = tmNow;
-    }
+  if (ulTouch&IOSTOUCH_COMPUTER)   ulActions |= IOS_PLACT_COMPUTER;
+  // USE just pressed
+  if ((ulTouch&IOSTOUCH_USE) && !(ulTouchLast&IOSTOUCH_USE)) {
+    ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_NOZOOM;
   }
   ulTouchLast = ulTouch;
   return ulActions;
@@ -859,7 +860,7 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
 #ifdef PLATFORM_IOS
   // and its buttons, whatever keys are bound
   if (!bPreScan && ctl_iCurrentPlayerLocal==0) {
-    paAction.pa_ulButtons |= IOS_TouchButtonActions(pc, tiTouch.ulButtons);
+    paAction.pa_ulButtons |= IOS_TouchButtonActions(tiTouch.ulButtons);
   }
 #endif
 }

@@ -421,6 +421,9 @@ static void IOS_UpdateTouchControls(void)
       CPrintF(TRANS("No quicksave yet\n"));
     }
   }
+  if ((iRequests&IOSTOUCH_REQ_READMESSAGES) && iMode==IOSTOUCH_GAMEPLAY) {
+    IOS_MarkAllMessagesRead();  // the HUD's messages box stops blinking (and dims)
+  }
 }
 #endif
 

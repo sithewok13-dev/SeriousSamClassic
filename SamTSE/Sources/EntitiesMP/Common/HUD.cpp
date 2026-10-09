@@ -440,10 +440,12 @@ extern INDEX SetAllPlayersStats( INDEX iSortKey)
 #ifdef PLATFORM_IOS
 #include "IOSTouch.h"
 // What the touch controls need to know (IOS_GetHudState): where the score
-// and high score boxes, the ammo row and the unread messages box are, so
-// they keep their buttons clear of them, and what the player holds. Boxes
-// are gathered as HUD_DrawBorder draws them, in fractions of the screen.
-enum { IOS_HUD_NONE = 0, IOS_HUD_SCORE, IOS_HUD_HISCORE, IOS_HUD_AMMO, IOS_HUD_MESSAGES };
+// and high score boxes and the unread messages box are, so they keep their
+// buttons clear of them (and a tap or hold on the messages box is its own),
+// how many unread messages that box shows and where it is drawn now, and
+// what the player holds. Boxes are gathered as HUD_DrawBorder draws them, in
+// fractions of the screen.
+enum { IOS_HUD_NONE = 0, IOS_HUD_SCORE, IOS_HUD_HISCORE, IOS_HUD_MESSAGES, IOS_HUD_MESSAGESNOW };
 static INDEX _iIOSHudPart = IOS_HUD_NONE; // what the borders drawn now belong to
 static BOOL _bIOSHudMeasureOnly = FALSE;  // only measure the border, don't draw it
 static IOSTouchHud _hudIOS;               // being gathered
@@ -455,7 +457,7 @@ static void IOS_HudAddBorder(FLOAT fLeft, FLOAT fUp, FLOAT fRight, FLOAT fDown)
   if (_iIOSHudPart==IOS_HUD_NONE) return;
   float *af = (_iIOSHudPart==IOS_HUD_SCORE) ? _hudIOS.afScore
             : (_iIOSHudPart==IOS_HUD_HISCORE) ? _hudIOS.afHiScore
-            : (_iIOSHudPart==IOS_HUD_AMMO) ? _hudIOS.afAmmo : _hudIOS.afMessages;
+            : (_iIOSHudPart==IOS_HUD_MESSAGES) ? _hudIOS.afMessages : _hudIOS.afMessagesNow;
   const FLOAT fW = _pDP->dp_Raster->ra_Width;
   const FLOAT fH = _pDP->dp_Raster->ra_Height;
   const float afBox[4] = { (_pDP->dp_MinI+fLeft)/fW,  (_pDP->dp_MinJ+fUp)/fH,
@@ -1100,21 +1102,7 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
   fCol = pixRightBound -fHalfUnitS;
   const FLOAT fBarPos = fHalfUnitS*0.7f;
   FillWeaponAmmoTables();
-#ifdef PLATFORM_IOS
-  // the ammo row at its widest, whatever the player has now, so the touch
-  // controls don't move about as ammo is picked up
-  {
-    const FLOAT fScalingAdjustment = _fCustomScalingAdjustment;
-    if (!hud_bLegacyHUD) {_fCustomScalingAdjustment = 0.7f;}
-    _iIOSHudPart = IOS_HUD_AMMO;
-    _bIOSHudMeasureOnly = TRUE;
-    HUD_DrawBorder( fCol,             fRow, fOneUnitS, fOneUnitS, colBorder);
-    HUD_DrawBorder( fCol-8*fAdvUnitS, fRow, fOneUnitS, fOneUnitS, colBorder);
-    _bIOSHudMeasureOnly = FALSE;
-    _iIOSHudPart = IOS_HUD_NONE;
-    _fCustomScalingAdjustment = fScalingAdjustment;
-  }
-#endif
+#ifndef PLATFORM_IOS  // (iOS: no ammo row, see IOSTouch.h, nor the power-ups here)
 
   FLOAT fBombCount = penPlayerCurrent->m_iSeriousBombCount;
   BOOL  bBombFiring = FALSE;
@@ -1169,8 +1157,7 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
     }
   }
 
-  // draw powerup(s) if needed
-#ifndef PLATFORM_IOS  // (iOS: in the top row, below)
+  // draw powerup(s) if needed (iOS: in the top row, below)
   PrepareColorTransitions( colMax, colTop, colMid, C_RED, 0.66f, 0.33f, FALSE);
   TIME *ptmPowerups = (TIME*)&_penPlayer->m_tmInvisibility;
   TIME *ptmPowerupsMax = (TIME*)&_penPlayer->m_tmInvisibilityMax;
@@ -1651,6 +1638,8 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
 #ifdef PLATFORM_IOS
       fRow = fRowIOSMsg;
       fCol = fColIOSMsg;
+      _hudIOS.bMessages = TRUE;  // drawn: a tap or hold on it is the box's
+      _hudIOS.ctMessages = _penPlayer->m_ctUnreadMessages;
 #endif
       const FLOAT tmIn = 0.5f;
       const FLOAT tmOut = 0.5f;
@@ -1679,11 +1668,34 @@ extern void DrawHUD( const CPlayer *penPlayerCurrent, CDrawPort *pdpCurrent, BOO
         col = LerpColor(_colHUD, C_WHITE|0xFF, fRatio);
       }
       fAdv = fAdvUnit+ fChrUnit*4/2 -fHalfUnit;
+#ifdef PLATFORM_IOS
+      _iIOSHudPart = IOS_HUD_MESSAGESNOW;
+#endif
       HUD_DrawBorder( fCol,      fRow, fOneUnit,   fOneUnit, col);
       HUD_DrawBorder( fCol+fAdv, fRow, fChrUnit*4, fOneUnit, col);
+#ifdef PLATFORM_IOS
+      _iIOSHudPart = IOS_HUD_NONE;
+#endif
       HUD_DrawText(   fCol+fAdv, fRow, strValue,   col, 1.0f);
       HUD_DrawIcon(   fCol,      fRow, _toMessage, C_WHITE /*col*/, 0.0f, TRUE);
     }
+#ifdef PLATFORM_IOS
+    else if( hud_bShowMessages && bSinglePlay) {
+      const FLOAT fAdvM = fAdvUnit+fChrUnit*4/2-fHalfUnit;
+      const ULONG ulAlphaHUD = _ulAlphaHUD;
+      _ulAlphaHUD = ulAlphaHUD/2;
+      _hudIOS.bMessages = TRUE;  // drawn: a hold on it opens NETRICSA
+      _hudIOS.ctMessages = 0;
+      _iIOSHudPart = IOS_HUD_MESSAGESNOW;
+      HUD_DrawBorder( fColIOSMsg,       fRowIOSMsg, fOneUnit,   fOneUnit, _colHUD);
+      HUD_DrawBorder( fColIOSMsg+fAdvM, fRowIOSMsg, fChrUnit*4, fOneUnit, _colHUD);
+      _iIOSHudPart = IOS_HUD_NONE;
+      strValue = "0";
+      HUD_DrawText(   fColIOSMsg+fAdvM, fRowIOSMsg, strValue, _colHUD, 1.0f);
+      HUD_DrawIcon(   fColIOSMsg,       fRowIOSMsg, _toMessage, C_WHITE, 0.0f, FALSE);
+      _ulAlphaHUD = ulAlphaHUD;
+    }
+#endif
   }
 
   #ifdef ENTITY_DEBUG

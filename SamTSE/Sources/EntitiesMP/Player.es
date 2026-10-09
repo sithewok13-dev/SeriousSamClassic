@@ -288,9 +288,17 @@ static void KillAllEnemies(CEntity *penKiller)
 #define PLACT_SELECT_WEAPON_SHIFT (14)
 #define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)
 #ifdef PLATFORM_IOS
-// With PLACT_USE or PLACT_COMPUTER from the touch controls' USE (GameMP/Game.cpp):
-// that use never works the sniper scope (their ZOOM button does), and with the
-// sniper rifle opens NETRICSA as with any other weapon.
+// (the touch controls' USE doesn't open NETRICSA: holding the HUD's messages box does, so the hint
+// shows only while the HUD draws it)
+#define STR_READ_MESSAGE_HINT "Hold the envelope at the top to read the message!"
+#define READ_MESSAGE_HINT_AND && hud_bShowMessages && hud_bShowInfo
+#else
+#define STR_READ_MESSAGE_HINT "Press USE to read the message!"
+#define READ_MESSAGE_HINT_AND
+#endif
+#ifdef PLATFORM_IOS
+// With PLACT_USE from the touch controls' USE (GameMP/Game.cpp): that use never
+// works the sniper scope (their ZOOM button does).
 #define PLACT_USE_NOZOOM          (1L<<19)
 #else
 #define PLACT_USE_NOZOOM          0
@@ -3790,9 +3798,9 @@ functions:
       m_bPendingMessage = FALSE;
       m_tmAnalyseEnd = 0;
 
-      if (!m_bComputerInvoked && GetSP()->sp_bSinglePlayer) {
+      if (!m_bComputerInvoked && GetSP()->sp_bSinglePlayer READ_MESSAGE_HINT_AND) {
         PrintCenterMessage(this, this, 
-          TRANS("Press USE to read the message!"), 5.0f, MSS_NONE);
+          TRANS(STR_READ_MESSAGE_HINT), 5.0f, MSS_NONE);
       }
     }
 
@@ -4635,8 +4643,7 @@ functions:
 
     // if use is pressed
     if (ulNewButtons&PLACT_USE) {
-      // (the iOS touch controls' USE: as with any weapon, see PLACT_USE_NOZOOM)
-      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER && !(ulButtonsNow&PLACT_USE_NOZOOM)) {
+      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER) {
         UsePressed(FALSE);
       } else {
         UsePressed(ulNewButtons&PLACT_COMPUTER);

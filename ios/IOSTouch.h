@@ -9,13 +9,26 @@
        and SMOOTH AXIS; the look speed is set for MOUSE ACCELERATION on, as
        it is by default)
      - buttons. Bottom right: FIRE, with CROUCH / USE / JUMP on an arc around
-       it; ZOOM above the ammo row while the sniper rifle is held and BOMB
-       beside JUMP while there are serious bombs (both Second Encounter
-       only). USE works switches and, tapped twice, opens NETRICSA, but
-       never the sniper scope: only ZOOM does. Dragging on any of these also
-       looks, except BOMB, which goes off as the finger lifts on it (so a
-       look swipe can't waste a bomb). Top left: NEXT and PREV weapon, below
-       the score. Top right: QUICK SAVE, QUICK LOAD and MENU.
+       it; ZOOM beside FIRE while the sniper rifle is held and BOMB beside
+       JUMP while there are serious bombs, saying how many (both Second
+       Encounter only). USE works switches, but never opens NETRICSA (however
+       quickly it is tapped again, and whatever the player's settings say)
+       or works the sniper scope: only ZOOM does. Dragging on any of these
+       also looks, except BOMB, which goes off as the finger lifts on it (so
+       a look swipe can't waste a bomb). Top left: NEXT and PREV weapon,
+       below the score. Top right: QUICK SAVE, QUICK LOAD and MENU.
+     - the HUD's messages box (an envelope and how many unread, blinking
+       while there are some): a tap marks every message read, so it stops
+       blinking; with nothing unread it stays, dim and still (on PC it goes
+       away), as the way into NETRICSA. Held until a ring round it fills
+       (0.45 s, as MENU's), it opens NETRICSA, once the finger is known to
+       have stayed on, as QUICK SAVE (the ring keeps to that time, so a full
+       ring always means NETRICSA). A
+       finger that slides off it does neither; one kept still where it
+       landed stays on it while a new message drops the box down a little
+       and back. A button next to it keeps its own touches; the box is live
+       only while the HUD draws it (Options > HUD's messages on), in a game
+       being played.
      - QUICK SAVE and QUICK LOAD only go off when held: a ring round the
        button fills while it is held (0.3 s), and lifting before it is full
        does nothing. Each saves or loads once the finger is known to have
@@ -48,7 +61,10 @@
    indicator and a notch. Two things that blink sit in the HUD's top row
    instead of under FIRE at the bottom right as on PC: the unread messages
    box, right of the high score, and the Second Encounter's power-ups,
-   between the score and the high score.
+   between the score and the high score. The row of small ammo boxes at the
+   bottom right (every ammo type, and the serious bombs) isn't drawn: the
+   current weapon's ammo shows at the bottom middle as on PC, and BOMB
+   counts the bombs.
 
    Threads: IOSTouch_Update and IOSTouch_Hide run on the main thread,
    IOSTouch_ReadInput on the game's input thread (SDLTimer, once per game
@@ -76,8 +92,10 @@ typedef struct IOSTouchHud {
   int bValid;       /* the HUD was drawn lately (the rest is from then) */
   float afScore[4];    /* the score box, top left */
   float afHiScore[4];  /* the high score box, top middle */
-  float afAmmo[4];     /* the row of ammo boxes, bottom right, at its widest */
   float afMessages[4]; /* the unread messages box, where it sits when it shows (top row) */
+  float afMessagesNow[4]; /* ...where it was drawn this time: a new message drops it down a little for a while */
+  int bMessages;    /* the messages box is drawn (dim with nothing unread) */
+  int ctMessages;   /* the unread messages it shows */
   int bSniper;      /* holding the sniper rifle (Second Encounter) */
   int ctBombs;      /* serious bombs (Second Encounter) */
 } IOSTouchHud;
@@ -89,19 +107,21 @@ enum {
   IOSTOUCH_REQ_QUICKSAVE = 1 << 2,
   IOSTOUCH_REQ_QUICKLOAD = 1 << 3,
   IOSTOUCH_REQ_RESUME    = 1 << 4, /* unpause */
+  IOSTOUCH_REQ_READMESSAGES = 1 << 5, /* mark every NETRICSA message read (a tap on the unread messages box) */
 };
 
 /* Buttons as the game reads them once per tick (IOSTouchInput.ulButtons) */
 enum {
   IOSTOUCH_FIRE       = 1 << 0,
-  IOSTOUCH_USE        = 1 << 1, /* use; tapped twice: NETRICSA. Never the sniper scope */
+  IOSTOUCH_USE        = 1 << 1, /* use. Never NETRICSA, never the sniper scope */
   IOSTOUCH_JUMP       = 1 << 2,
   IOSTOUCH_CROUCH     = 1 << 3,
   IOSTOUCH_NEXTWEAPON = 1 << 4,
   IOSTOUCH_PREVWEAPON = 1 << 5,
   IOSTOUCH_ZOOM       = 1 << 6, /* sniper scope (plain use) */
   IOSTOUCH_BOMB       = 1 << 7, /* serious bomb (one press per tap) */
-  IOSTOUCH_NUMBUTTONS = 8
+  IOSTOUCH_COMPUTER   = 1 << 8, /* NETRICSA (one press: the unread messages box held) */
+  IOSTOUCH_NUMBUTTONS = 9
 };
 typedef struct IOSTouchInput {
   float fMoveX;           /* move stick: -1..1, right is + */
@@ -131,6 +151,9 @@ void IOSTouch_TakeLook(float *pfDX, float *pfDY);
 
 /* Provided by the HUD (Entities Common/HUD.cpp), main thread */
 void IOS_GetHudState(IOSTouchHud *pHud);
+/* Provided by NETRICSA (GameMP/Computer.cpp), main thread: marks every
+   message of the first local player read (IOSTOUCH_REQ_READMESSAGES) */
+void IOS_MarkAllMessagesRead(void);
 
 #ifdef __cplusplus
 }

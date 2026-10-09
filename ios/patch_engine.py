@@ -440,36 +440,37 @@ static inline INDEX GridCoord(double d)
 #endif
 
 // The touch controls' buttons as the player's button bits for this tick.
-// USE works like the default Use key (ctl_bUseOrComputer): use, and tapped
-// again within ctl_tmComputerDoubleClick NETRICSA -- or both at once, if the
-// player's settings say NETRICSA opens on a single click. But it never works
-// the sniper scope, which that key does when there is nothing to use: it
-// sends no USE_HELD or SNIPER_USE, and USE_NOZOOM with its press. ZOOM is
-// the scope: plain use (with the sniper rifle: scope on/off, held: zoom in).
-static ULONG IOS_TouchButtonActions(const CPlayerCharacter &pc, ULONG ulTouch)
+// USE is a plain use, once as it goes down: unlike the default Use key
+// (ctl_bUseOrComputer), it never opens NETRICSA -- not when tapped again
+// within ctl_tmComputerDoubleClick, nor on a single click if the player's
+// settings say so (a thumb did that by accident). NETRICSA is a hold on the
+// HUD's messages box (the envelope), which comes as IOSTOUCH_COMPUTER: the
+// Computer key. Nor does USE work the sniper scope, which that key does
+// when there is nothing to use: it sends no USE_HELD or SNIPER_USE, and
+// USE_NOZOOM with its press. ZOOM is the scope: plain use (with the sniper
+// rifle: scope on/off, held: zoom in). A keyboard's or controller's own Use
+// key still works as on PC.
+// NETRICSA's press gets its tick to itself: the player takes a new use in
+// the same tick instead (with something to use, or the sniper rifle), so a
+// USE or ZOOM press that comes with it waits for the next tick.
+static ULONG IOS_TouchButtonActions(ULONG ulTouch)
 {
   static ULONG ulTouchLast = 0;
-  static TIME tmLastUse = -100.0;
+  static ULONG ulHeldBack = 0;  // USE or ZOOM pressed with NETRICSA's press, for the next tick
+  const ULONG ulNew = ulTouch&~ulTouchLast;
+  const ULONG ulHoldBack = (ulNew&IOSTOUCH_COMPUTER) ? (ulNew&(IOSTOUCH_USE|IOSTOUCH_ZOOM)) : 0;
+  ulTouch = (ulTouch&~ulHoldBack)|ulHeldBack;
+  ulHeldBack = ulHoldBack;
   ULONG ulActions = 0;
   if (ulTouch&IOSTOUCH_FIRE)       ulActions |= IOS_PLACT_FIRE;
   if (ulTouch&IOSTOUCH_NEXTWEAPON) ulActions |= IOS_PLACT_WEAPON_NEXT;
   if (ulTouch&IOSTOUCH_PREVWEAPON) ulActions |= IOS_PLACT_WEAPON_PREV;
   if (ulTouch&IOSTOUCH_BOMB)       ulActions |= IOS_PLACT_FIREBOMB;
   if (ulTouch&IOSTOUCH_ZOOM)       ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_HELD|IOS_PLACT_SNIPER_USE;
-  if (ulTouch&IOSTOUCH_USE) {
-    // just pressed
-    if (!(ulTouchLast&IOSTOUCH_USE)) {
-      const CPlayerSettings *pps = (const CPlayerSettings *)pc.pc_aubAppearance;
-      const FLOAT tmDoubleClick = _pShell->GetFLOAT("ctl_tmComputerDoubleClick");
-      const TIME tmNow = _pTimer->GetRealTimeTick();
-      if (tmDoubleClick==0 || (pps->ps_ulFlags&PSF_COMPSINGLECLICK)) {
-        ulActions |= IOS_PLACT_USE|IOS_PLACT_COMPUTER;
-      } else {
-        ulActions |= (tmNow<=tmLastUse+tmDoubleClick) ? IOS_PLACT_COMPUTER : IOS_PLACT_USE;
-      }
-      ulActions |= IOS_PLACT_USE_NOZOOM;
-      tmLastUse = tmNow;
-    }
+  if (ulTouch&IOSTOUCH_COMPUTER)   ulActions |= IOS_PLACT_COMPUTER;
+  // USE just pressed
+  if ((ulTouch&IOSTOUCH_USE) && !(ulTouchLast&IOSTOUCH_USE)) {
+    ulActions |= IOS_PLACT_USE|IOS_PLACT_USE_NOZOOM;
   }
   ulTouchLast = ulTouch;
   return ulActions;
@@ -512,7 +513,7 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
 #ifdef PLATFORM_IOS
   // and its buttons, whatever keys are bound
   if (!bPreScan && ctl_iCurrentPlayerLocal==0) {
-    paAction.pa_ulButtons |= IOS_TouchButtonActions(pc, tiTouch.ulButtons);
+    paAction.pa_ulButtons |= IOS_TouchButtonActions(tiTouch.ulButtons);
   }
 #endif
 }
@@ -529,26 +530,41 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
         sub(p, "#define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)\n",
 """#define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)
 #ifdef PLATFORM_IOS
-// With PLACT_USE or PLACT_COMPUTER from the touch controls' USE (GameMP/Game.cpp):
-// that use never works the sniper scope (their ZOOM button does), and with the
-// sniper rifle opens NETRICSA as with any other weapon.
+// With PLACT_USE from the touch controls' USE (GameMP/Game.cpp): that use never
+// works the sniper scope (their ZOOM button does).
 #define PLACT_USE_NOZOOM          (1L<<19)
 #else
 #define PLACT_USE_NOZOOM          0
 #endif
 """, "#define PLACT_USE_NOZOOM")
-        sub(p, """    if (ulNewButtons&PLACT_USE) {
-      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER) {
-""", """    if (ulNewButtons&PLACT_USE) {
-      // (the iOS touch controls' USE: as with any weapon, see PLACT_USE_NOZOOM)
-      if (((CPlayerWeapons&)*m_penWeapons).m_iCurrentWeapon==WEAPON_SNIPER && !(ulButtonsNow&PLACT_USE_NOZOOM)) {
-""", "WEAPON_SNIPER && !(ulButtonsNow&PLACT_USE_NOZOOM)")
         sub(p, """    else if (!bSomethingToUse)
     {
 """, """    // nothing to use: the sniper scope on or off (not for the iOS touch controls' USE)
     else if (!bSomethingToUse && !(ulButtonsNow&PLACT_USE_NOZOOM))
     {
 """, "!bSomethingToUse && !(ulButtonsNow&PLACT_USE_NOZOOM)")
+
+    # The touch controls' USE doesn't open NETRICSA (a hold on the HUD's unread
+    # messages box does), so the hint shown until NETRICSA was first opened
+    # says so. (A #define, as ECC takes no preprocessor lines in function
+    # bodies: on the desktop the same string as before.)
+    p = src / ("EntitiesMP/Player.es" if game == "SamTSE" else "Entities/Player.es")
+    sub(p, "#define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)\n",
+"""#define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)
+#ifdef PLATFORM_IOS
+// (the touch controls' USE doesn't open NETRICSA: holding the HUD's messages box does, so the hint
+// shows only while the HUD draws it)
+#define STR_READ_MESSAGE_HINT "Hold the envelope at the top to read the message!"
+#define READ_MESSAGE_HINT_AND && hud_bShowMessages && hud_bShowInfo
+#else
+#define STR_READ_MESSAGE_HINT "Press USE to read the message!"
+#define READ_MESSAGE_HINT_AND
+#endif
+""", "#define STR_READ_MESSAGE_HINT")
+    sub(p, '          TRANS("Press USE to read the message!"), 5.0f, MSS_NONE);\n',
+           '          TRANS(STR_READ_MESSAGE_HINT), 5.0f, MSS_NONE);\n', "TRANS(STR_READ_MESSAGE_HINT)")
+    sub(p, "      if (!m_bComputerInvoked && GetSP()->sp_bSinglePlayer) {\n",
+           "      if (!m_bComputerInvoked && GetSP()->sp_bSinglePlayer READ_MESSAGE_HINT_AND) {\n", "sp_bSinglePlayer READ_MESSAGE_HINT_AND")
 
     # drag-to-look: more mouse movement, before the mouse settings apply
     p = src / "Engine/Base/SDL/SDLInput.cpp"
@@ -748,6 +764,9 @@ static void IOS_UpdateTouchControls(void)
     } else {
       CPrintF(TRANS("No quicksave yet\\n"));
     }
+  }
+  if ((iRequests&IOSTOUCH_REQ_READMESSAGES) && iMode==IOSTOUCH_GAMEPLAY) {
+    IOS_MarkAllMessagesRead();  // the HUD's messages box stops blinking (and dims)
   }
 }
 #endif
@@ -965,6 +984,48 @@ void CMGKeyDefinition::Think( void)
 #endif
 """, "CDrawPort dpMsg(pdpDrawPort, afIOSFrame[0]")
 
+    # A tap on the HUD's messages box marks every message read, as NETRICSA
+    # marks the one being read (MarkCurrentRead): the inbox's read flags,
+    # which saved games keep (the count is made from them on loading), and
+    # the player's count, which the HUD shows (none unread now). NETRICSA
+    # makes its list afresh from the flags whenever it opens. As opening
+    # NETRICSA does (ComputerPressed), it also drops the new message's
+    # "Analyzing..." and the hint and sound still to come, which would
+    # otherwise come up for a message already read. Only the touch controls
+    # ask for it, in a single-player game (SeriousSam.cpp), on the main thread
+    # as NETRICSA.
+    p = src / "GameMP/Computer.cpp"
+    sub(p, '#include "Render.h"\n',
+           '#include "Render.h"\n#ifdef PLATFORM_IOS\n#include "IOSTouch.h"\n#endif\n', '#include "IOSTouch.h"')
+    sub(p, "  _ppenPlayer->m_ctUnreadMessages--;\n  _acmMessages[_iActiveMessage].MarkRead();\n}\n",
+"""  _ppenPlayer->m_ctUnreadMessages--;
+  _acmMessages[_iActiveMessage].MarkRead();
+}
+
+#ifdef PLATFORM_IOS
+// every message of the first local player read (the touch controls)
+extern "C" void IOS_MarkAllMessagesRead(void)
+{
+  CPlayerSource *ppls = _pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource;
+  if (ppls==NULL) {
+    return;
+  }
+  CPlayer *penPlayer = (CPlayer *)_pNetwork->GetLocalPlayerEntity(ppls);
+  if (penPlayer==NULL) {
+    return;
+  }
+  CDynamicStackArray<CCompMessageID> &acmiMsgs = penPlayer->m_acmiMessages;
+  for(INDEX i=0; i<acmiMsgs.Count(); i++) {
+    acmiMsgs[i].cmi_bRead = TRUE;
+  }
+  penPlayer->m_ctUnreadMessages = 0;
+  penPlayer->m_tmAnalyseEnd = 0;
+  penPlayer->m_bPendingMessage = FALSE;
+  penPlayer->m_tmMessagePlay = 0;
+}
+#endif
+""", "extern \"C\" void IOS_MarkAllMessagesRead(void)\n{")
+
     # no touch controls over the loading screen
     p = src / "GameMP/LoadingHook.cpp"
     sub(p, "#include <locale.h>\n",
@@ -977,17 +1038,20 @@ void CMGKeyDefinition::Think( void)
 #endif
 """, "  IOSTouch_Hide();\n")
 
-    # the HUD tells the overlay where its score and high score boxes and ammo
-    # row are, and what the player holds (sniper rifle, serious bombs)
+    # the HUD tells the overlay where its score and high score boxes and
+    # unread messages box are, how many messages that shows, and what the
+    # player holds (sniper rifle, serious bombs)
     p = src / ("EntitiesMP/Common/HUD.cpp" if game == "SamTSE" else "Entities/Common/HUD.cpp")
     sub(p, "// draw border with filter\nstatic void HUD_DrawBorder(",
 """#ifdef PLATFORM_IOS
 #include "IOSTouch.h"
 // What the touch controls need to know (IOS_GetHudState): where the score
-// and high score boxes, the ammo row and the unread messages box are, so
-// they keep their buttons clear of them, and what the player holds. Boxes
-// are gathered as HUD_DrawBorder draws them, in fractions of the screen.
-enum { IOS_HUD_NONE = 0, IOS_HUD_SCORE, IOS_HUD_HISCORE, IOS_HUD_AMMO, IOS_HUD_MESSAGES };
+// and high score boxes and the unread messages box are, so they keep their
+// buttons clear of them (and a tap or hold on the messages box is its own),
+// how many unread messages that box shows and where it is drawn now, and
+// what the player holds. Boxes are gathered as HUD_DrawBorder draws them, in
+// fractions of the screen.
+enum { IOS_HUD_NONE = 0, IOS_HUD_SCORE, IOS_HUD_HISCORE, IOS_HUD_MESSAGES, IOS_HUD_MESSAGESNOW };
 static INDEX _iIOSHudPart = IOS_HUD_NONE; // what the borders drawn now belong to
 static BOOL _bIOSHudMeasureOnly = FALSE;  // only measure the border, don't draw it
 static IOSTouchHud _hudIOS;               // being gathered
@@ -999,7 +1063,7 @@ static void IOS_HudAddBorder(FLOAT fLeft, FLOAT fUp, FLOAT fRight, FLOAT fDown)
   if (_iIOSHudPart==IOS_HUD_NONE) return;
   float *af = (_iIOSHudPart==IOS_HUD_SCORE) ? _hudIOS.afScore
             : (_iIOSHudPart==IOS_HUD_HISCORE) ? _hudIOS.afHiScore
-            : (_iIOSHudPart==IOS_HUD_AMMO) ? _hudIOS.afAmmo : _hudIOS.afMessages;
+            : (_iIOSHudPart==IOS_HUD_MESSAGES) ? _hudIOS.afMessages : _hudIOS.afMessagesNow;
   const FLOAT fW = _pDP->dp_Raster->ra_Width;
   const FLOAT fH = _pDP->dp_Raster->ra_Height;
   const float afBox[4] = { (_pDP->dp_MinI+fLeft)/fW,  (_pDP->dp_MinJ+fUp)/fH,
@@ -1142,9 +1206,11 @@ static void HUD_DrawBorder(""", "class CIOSHudFrame {")
 #ifdef PLATFORM_IOS
       fRow = fRowIOSMsg;
       fCol = fColIOSMsg;
+      _hudIOS.bMessages = TRUE;  // drawn: a tap or hold on it is the box's
+      _hudIOS.ctMessages = _penPlayer->m_ctUnreadMessages;
 #endif
       const FLOAT tmIn = 0.5f;
-""", "      fRow = fRowIOSMsg;\n")
+""", "_hudIOS.bMessages = TRUE;  // drawn: a tap or hold")
     sub(p, "        fCol-=fAdvUnit*15*fRatio;\n",
 """        fCol-=fAdvUnit*15*fRatio;
 #ifdef PLATFORM_IOS
@@ -1152,27 +1218,64 @@ static void HUD_DrawBorder(""", "class CIOSHudFrame {")
         fCol = fColIOSMsg;
 #endif
 """, "fRow = fRowIOSMsg+fAdvUnit*5*fRatio;")
-    # the leftmost ammo box is this many boxes left of the rightmost one: all
-    # 8 ammo types, plus the serious bomb in the Second Encounter
-    ctAmmoAdv = 8 if game == "SamTSE" else 7
+    # and where the box is drawn this frame: a new message drops it down a
+    # little for a while, and a tap there is the box's too
+    sub(p, """      fAdv = fAdvUnit+ fChrUnit*4/2 -fHalfUnit;
+      HUD_DrawBorder( fCol,      fRow, fOneUnit,   fOneUnit, col);
+      HUD_DrawBorder( fCol+fAdv, fRow, fChrUnit*4, fOneUnit, col);
+""", """      fAdv = fAdvUnit+ fChrUnit*4/2 -fHalfUnit;
+#ifdef PLATFORM_IOS
+      _iIOSHudPart = IOS_HUD_MESSAGESNOW;
+#endif
+      HUD_DrawBorder( fCol,      fRow, fOneUnit,   fOneUnit, col);
+      HUD_DrawBorder( fCol+fAdv, fRow, fChrUnit*4, fOneUnit, col);
+#ifdef PLATFORM_IOS
+      _iIOSHudPart = IOS_HUD_NONE;
+#endif
+""", "      _iIOSHudPart = IOS_HUD_MESSAGESNOW;\n")
+    # With nothing unread the box stays on iOS, dim and still where it sits,
+    # in a single-player game (on PC it goes away): holding it is the touch
+    # controls' way into NETRICSA (their USE never opens it; IOSTouch.h), and
+    # a tap on it marks the messages read without taking that away
+    sub(p, """      HUD_DrawIcon(   fCol,      fRow, _toMessage, %s, 0.0f, TRUE);
+    }
+""" % ("C_WHITE /*col*/" if game == "SamTSE" else "col"),
+"""      HUD_DrawIcon(   fCol,      fRow, _toMessage, %s, 0.0f, TRUE);
+    }
+#ifdef PLATFORM_IOS
+    else if( hud_bShowMessages && bSinglePlay) {
+      const FLOAT fAdvM = fAdvUnit+fChrUnit*4/2-fHalfUnit;
+      const ULONG ulAlphaHUD = _ulAlphaHUD;
+      _ulAlphaHUD = ulAlphaHUD/2;
+      _hudIOS.bMessages = TRUE;  // drawn: a hold on it opens NETRICSA
+      _hudIOS.ctMessages = 0;
+      _iIOSHudPart = IOS_HUD_MESSAGESNOW;
+      HUD_DrawBorder( fColIOSMsg,       fRowIOSMsg, fOneUnit,   fOneUnit, _colHUD);
+      HUD_DrawBorder( fColIOSMsg+fAdvM, fRowIOSMsg, fChrUnit*4, fOneUnit, _colHUD);
+      _iIOSHudPart = IOS_HUD_NONE;
+      strValue = "0";
+      HUD_DrawText(   fColIOSMsg+fAdvM, fRowIOSMsg, strValue, _colHUD, 1.0f);
+      HUD_DrawIcon(   fColIOSMsg,       fRowIOSMsg, _toMessage, %s, 0.0f, FALSE);
+      _ulAlphaHUD = ulAlphaHUD;
+    }
+#endif
+""" % (("C_WHITE /*col*/", "C_WHITE") if game == "SamTSE" else ("col", "_colHUD")), "_hudIOS.bMessages = TRUE;  // drawn: a hold on it opens NETRICSA")
+    # No row of small ammo boxes at the bottom right (one per ammo type, with
+    # a bar, and the Second Encounter's serious bomb box): on the phone it
+    # only took the corner FIRE wants. The current weapon's ammo still shows
+    # at the bottom middle, and the touch controls' BOMB says how many bombs
+    # there are. (FillWeaponAmmoTables still runs: it keeps the ammo tables'
+    # changes, which the HUD shakes boxes for, up to date.) In the Second
+    # Encounter this goes on over the PC's power-ups, which are in the top
+    # row on iOS (below).
     sub(p, "  FillWeaponAmmoTables();\n",
 """  FillWeaponAmmoTables();
-#ifdef PLATFORM_IOS
-  // the ammo row at its widest, whatever the player has now, so the touch
-  // controls don't move about as ammo is picked up
-  {
-    const FLOAT fScalingAdjustment = _fCustomScalingAdjustment;
-    if (!hud_bLegacyHUD) {_fCustomScalingAdjustment = 0.7f;}
-    _iIOSHudPart = IOS_HUD_AMMO;
-    _bIOSHudMeasureOnly = TRUE;
-    HUD_DrawBorder( fCol,             fRow, fOneUnitS, fOneUnitS, colBorder);
-    HUD_DrawBorder( fCol-%d*fAdvUnitS, fRow, fOneUnitS, fOneUnitS, colBorder);
-    _bIOSHudMeasureOnly = FALSE;
-    _iIOSHudPart = IOS_HUD_NONE;
-    _fCustomScalingAdjustment = fScalingAdjustment;
-  }
-#endif
-""" % ctAmmoAdv, "_iIOSHudPart = IOS_HUD_AMMO;")
+#ifndef PLATFORM_IOS  // (iOS: no ammo row, see IOSTouch.h%s)
+""" % (", nor the power-ups here" if game == "SamTSE" else ""), "#ifndef PLATFORM_IOS  // (iOS: no ammo row")
+    if game == "SamTFE":
+        sub(p, "      fCol -= fAdvUnitS;\n    }\n  }\n\n#define TXT_WIDTH_SCORE",
+               "      fCol -= fAdvUnitS;\n    }\n  }\n#endif // PLATFORM_IOS\n\n#define TXT_WIDTH_SCORE",
+            "  }\n#endif // PLATFORM_IOS\n\n#define TXT_WIDTH_SCORE")
     # The Second Encounter's power-ups go in the top row, in the gap between
     # the score and the high score: above the ammo row at the bottom right,
     # as on PC, they sat under the touch controls' FIRE (and ZOOM), and they
@@ -1180,9 +1283,7 @@ static void HUD_DrawBorder(""", "class CIOSHudFrame {")
     # known; the same boxes, icons, bars and sound as on PC, left to right.
     if game == "SamTSE":
         sub(p, "  // draw powerup(s) if needed\n",
-"""  // draw powerup(s) if needed
-#ifndef PLATFORM_IOS  // (iOS: in the top row, below)
-""", "#ifndef PLATFORM_IOS  // (iOS: in the top row, below)")
+               "  // draw powerup(s) if needed (iOS: in the top row, below)\n", "(iOS: in the top row, below)")
         sub(p, "    fCol -= fAdvUnitS;\n  }\n\n#define TXT_WIDTH_SCORE",
                "    fCol -= fAdvUnitS;\n  }\n#endif // PLATFORM_IOS\n\n#define TXT_WIDTH_SCORE",
             "  }\n#endif // PLATFORM_IOS\n\n#define TXT_WIDTH_SCORE")

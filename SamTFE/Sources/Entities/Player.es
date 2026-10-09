@@ -263,6 +263,15 @@ static void KillAllEnemies(CEntity *penKiller)
 #define PLACT_CENTER_VIEW         (1L<<8)
 #define PLACT_SELECT_WEAPON_SHIFT (9)
 #define PLACT_SELECT_WEAPON_MASK  (0x1FL<<PLACT_SELECT_WEAPON_SHIFT)
+#ifdef PLATFORM_IOS
+// (the touch controls' USE doesn't open NETRICSA: holding the HUD's messages box does, so the hint
+// shows only while the HUD draws it)
+#define STR_READ_MESSAGE_HINT "Hold the envelope at the top to read the message!"
+#define READ_MESSAGE_HINT_AND && hud_bShowMessages && hud_bShowInfo
+#else
+#define STR_READ_MESSAGE_HINT "Press USE to read the message!"
+#define READ_MESSAGE_HINT_AND
+#endif
                                      
 #define MAX_WEAPONS 30
 
@@ -3271,9 +3280,9 @@ functions:
       m_bPendingMessage = FALSE;
       m_tmAnalyseEnd = 0;
 
-      if (!m_bComputerInvoked && GetSP()->sp_bSinglePlayer) {
+      if (!m_bComputerInvoked && GetSP()->sp_bSinglePlayer READ_MESSAGE_HINT_AND) {
         PrintCenterMessage(this, this, 
-          TRANS("Press USE to read the message!"), 5.0f, MSS_NONE);
+          TRANS(STR_READ_MESSAGE_HINT), 5.0f, MSS_NONE);
       }
     }
 

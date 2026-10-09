@@ -17,6 +17,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "LCDDrawing.h"
 #include "CompMessage.h"
 #include "Render.h"
+#ifdef PLATFORM_IOS
+#include "IOSTouch.h"
+#endif
 
 #ifdef PLATFORM_UNIX
 #include <Engine/Base/SDL/SDLEvents.h>
@@ -394,6 +397,29 @@ void MarkCurrentRead(void)
   _ppenPlayer->m_ctUnreadMessages--;
   _acmMessages[_iActiveMessage].MarkRead();
 }
+
+#ifdef PLATFORM_IOS
+// every message of the first local player read (the touch controls)
+extern "C" void IOS_MarkAllMessagesRead(void)
+{
+  CPlayerSource *ppls = _pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource;
+  if (ppls==NULL) {
+    return;
+  }
+  CPlayer *penPlayer = (CPlayer *)_pNetwork->GetLocalPlayerEntity(ppls);
+  if (penPlayer==NULL) {
+    return;
+  }
+  CDynamicStackArray<CCompMessageID> &acmiMsgs = penPlayer->m_acmiMessages;
+  for(INDEX i=0; i<acmiMsgs.Count(); i++) {
+    acmiMsgs[i].cmi_bRead = TRUE;
+  }
+  penPlayer->m_ctUnreadMessages = 0;
+  penPlayer->m_tmAnalyseEnd = 0;
+  penPlayer->m_bPendingMessage = FALSE;
+  penPlayer->m_tmMessagePlay = 0;
+}
+#endif
 
 // update scroll position for message list
 static void UpdateFirstOnScreen(void)

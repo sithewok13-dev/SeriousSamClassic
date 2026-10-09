@@ -4,7 +4,8 @@
    Everything up to the overlay view is plain C: the buttons and their
    layout, the state shared with the game's thread, and what each touch does
    (the stick, looking, the buttons, the QUICK SAVE, QUICK LOAD and MENU
-   holds, MENU's tray, the FPS count). The view below only hands UIKit's
+   holds, MENU's tray, the unread messages box's tap and hold, the FPS
+   count). The view below only hands UIKit's
    touches to it and shows its state, so the Linux test drives this very
    code. */
 
@@ -12,6 +13,7 @@
 #import <QuartzCore/QuartzCore.h>
 #include <os/lock.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include "SDL.h"
 #include "SDL_syswm.h"
@@ -44,6 +46,17 @@
 // MENU held this long opens its tray (the keyboard, FPS); a tap opens the
 // menu as it lifts
 #define IOSTOUCH_MENU_HOLD 0.45
+// The HUD's messages box held this long opens NETRICSA; a tap marks
+// every message read as it lifts. As long as MENU's hold, with the same ring
+// (both open something; QUICK SAVE's and QUICK LOAD's shorter holds only
+// guard against a stray tap). It is timed as QUICK SAVE's, though: NETRICSA
+// opens only once the finger is known to have stayed on (IOSTouch_TickHolds),
+// so a tap whose lift arrives late, after a slow frame, still only marks the
+// messages read -- NETRICSA opening by accident is what this is for -- and
+// its ring fills to that time too. A touch this far from the box is still
+// on it.
+#define IOSTOUCH_MESSAGES_HOLD IOSTOUCH_MENU_HOLD
+#define IOSTOUCH_MESSAGES_REACH 6.0
 // The FPS readout: its size in points, and how long it counts frames for
 // before it shows a new number
 #define IOSTOUCH_FPS_W 54.0
@@ -88,7 +101,7 @@ typedef struct {
 } IOSTouchButton;
 
 // Layout (see IOSTouch_LayoutButtons). Bottom right, under the right thumb:
-// FIRE, an arc of CROUCH / USE / JUMP around it, ZOOM above the ammo row and
+// FIRE, an arc of CROUCH / USE / JUMP around it, ZOOM right of FIRE and
 // BOMB right of JUMP -- all IOSTOUCH_CLUSTER_GAP apart; ZOOM and BOMB only
 // show while they can be used. These pass drags through to looking, so a
 // thumb that lands on one while aiming keeps aiming -- except BOMB, which
@@ -247,30 +260,34 @@ static int IOSTouch_BoxIsClear(double cx, double cy, double hw, double hh, const
   return 1;
 }
 
+// The HUD's unread messages box as the layout was given it (points): while
+// it shows, a touch on it is its own (IOSTouch_IsOnMessages). As a new
+// message comes in the HUD drops it down a little for a while: where it was
+// drawn last (points, set every frame by IOSTouch_UpdateOverlay) is the
+// box's too.
+static IOSTouchRect _rMessages;
+static IOSTouchRect _rMessagesNow;
+
 // Places every button on a W x H point screen with these safe-area insets,
-// keeping clear of the HUD's score and high score boxes, ammo row and unread
-// messages box (in points) and of the camera cutout when it may be on the
-// right. (The messages box is in the HUD's top row, which only the FPS
-// readout comes near.)
+// keeping clear of the HUD's score and high score boxes and unread messages
+// box (in points) and of the camera cutout when it may be on the right. (The
+// messages box is in the HUD's top row, which only the FPS readout comes
+// near. Nothing of the HUD is at the bottom right: the ammo row isn't drawn.)
 static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inTop, double inRight, double inBottom,
                                    int bCutoutMayBeRight, const IOSTouchRect *prScore, const IOSTouchRect *prHiScore,
-                                   const IOSTouchRect *prAmmo, const IOSTouchRect *prMessages)
+                                   const IOSTouchRect *prMessages)
 {
+  _rMessages = *prMessages;
+
   const double left = fmax(inLeft, 8.0);
   const double right = W - fmax(inRight, 8.0);
   const double top = fmax(inTop, 8.0);
   const double bottom = H - fmax(inBottom, 8.0);
 
-  // FIRE in the corner. The HUD's ammo row can reach up to there (it keeps
-  // above the home indicator, or a Home-button iPhone has no bottom inset):
-  // FIRE goes above it.
-  // Without side insets there is no spare edge for ZOOM to sit in beside
-  // FIRE, so FIRE sits further in.
+  // FIRE in the corner, above the home indicator. Without side insets there
+  // is no spare edge for ZOOM to sit in beside FIRE, so FIRE sits further in.
   const double FR = _aButtons[BTN_FIRE].radius;
-  double fireX = right - (inRight < 20.0 ? 100 : 76), fireY = bottom - 58;
-  if (prAmmo->bValid && fireY + FR + 4 > prAmmo->y0) {
-    fireY = prAmmo->y0 - 4 - FR;
-  }
+  const double fireX = right - (inRight < 20.0 ? 100 : 76), fireY = bottom - 58;
   _aButtons[BTN_FIRE].x = fireX;
   _aButtons[BTN_FIRE].y = fireY;
 
@@ -297,10 +314,9 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   const double cutHalf = ((inRight >= 55.0) ? 63.0 : 105.0) - cutR;
 
   // ZOOM: up and to the right of FIRE, IOSTOUCH_CLUSTER_GAP from it, as low as
-  // it can sit while staying clear of the ammo row, on screen, clear of JUMP
-  // and clear of the cutout. Where the cutout takes that side (on a short
-  // screen, where FIRE sits above the ammo row), level with FIRE or a little
-  // below it.
+  // it can sit while staying on screen, clear of JUMP and clear of the
+  // cutout. Where the cutout takes that side (on a short screen), level with
+  // FIRE or a little below it.
   {
     IOSTouchButton *a = &_aButtons[BTN_ZOOM];
     const IOSTouchButton *j = &_aButtons[BTN_JUMP];
@@ -318,7 +334,6 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
           const double rad = deg * M_PI / 180.0;
           const double px = fireX + (D + extra) * cos(rad), py = fireY - (D + extra) * sin(rad);
           if (px + AR > W - 4 || py - AR < top + 60 || py + AR > bottom) continue;     // on screen, below the top row
-          if (prAmmo->bValid && IOSTouch_DistToRect(px, py, prAmmo) < AR + 4) continue;   // clear of the ammo row
           if (hypot(px - j->x, py - j->y) < AR + j->radius + jumpGap) continue;          // clear of JUMP
           if (bCutout && IOSTouch_DistToSegment(px, py, cutX, H * 0.5 - cutHalf, cutX, H * 0.5 + cutHalf) < AR + cutR + 2)
             continue;                                                                     // clear of the cutout
@@ -329,10 +344,6 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
         }
       }
     }
-    // Last resort (e.g. a very large HUD on an iPad): never on the ammo row
-    if (!bFound && prAmmo->bValid && by + AR > prAmmo->y0 - 4) {
-      by = fmax(prAmmo->y0 - 4 - AR, top + 60 + AR);
-    }
     a->x = bx;
     a->y = by;
   }
@@ -340,7 +351,7 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   // BOMB: right of JUMP and above ZOOM, out of the way of aiming -- on the
   // circle IOSTOUCH_CLUSTER_GAP out from JUMP, as far round towards pointing
   // right as it fits on screen, below the top row and clear of ZOOM, USE,
-  // FIRE, the ammo row and the cutout. Where the cutout (or, on smaller
+  // FIRE and the cutout. Where the cutout (or, on smaller
   // screens, ZOOM) takes that spot it goes higher, over JUMP; failing that,
   // the gaps shrink.
   {
@@ -372,7 +383,6 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
         if (hypot(px - a->x, py - a->y) < R + a->radius + gap) continue;     // clear of ZOOM
         if (hypot(px - c->x, py - c->y) < R + c->radius + gap) continue;     // USE
         if (hypot(px - fireX, py - fireY) < R + FR + gap) continue;          // FIRE
-        if (prAmmo->bValid && IOSTouch_DistToRect(px, py, prAmmo) < R + 4) continue; // the ammo row
         if (bCutout && IOSTouch_DistToSegment(px, py, cutX, H * 0.5 - cutHalf, cutX, H * 0.5 + cutHalf) < R + cutR + 2)
           continue;                                                          // the cutout
         bx = px;
@@ -442,7 +452,7 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   // on to the left), clear of BOMB, ZOOM and MENU's tray as well.
   {
     const IOSTouchButton *q = &_aButtons[BTN_QUICKSAVE];
-    const IOSTouchRect *const apr[5] = { prScore, prHiScore, prAmmo, prMessages, &_rTrayBack };
+    const IOSTouchRect *const apr[4] = { prScore, prHiScore, prMessages, &_rTrayBack };
     const int aAvoid[2] = { BTN_BOMB, BTN_ZOOM };
     const double hw = IOSTOUCH_FPS_W * 0.5, hh = IOSTOUCH_FPS_H * 0.5;
     const double y2 = q->y + q->radius + 8 + hh;
@@ -450,13 +460,13 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
     _fFpsX = right - 216;
     _fFpsY = top + 26;
     for (double x = right - 216; x <= q->x - q->radius - 6 - hw && !bFound; x += 2) {
-      if (IOSTouch_BoxIsClear(x, top + 26, hw, hh, apr, 4, NULL, 0)) {
+      if (IOSTouch_BoxIsClear(x, top + 26, hw, hh, apr, 3, NULL, 0)) {
         _fFpsX = x;
         bFound = 1;
       }
     }
     for (double x = q->x; x >= left + hw && !bFound; x -= 4) {
-      if (IOSTouch_BoxIsClear(x, y2, hw, hh, apr, 5, aAvoid, 2)) {
+      if (IOSTouch_BoxIsClear(x, y2, hw, hh, apr, 4, aAvoid, 2)) {
         _fFpsX = x;
         _fFpsY = y2;
         bFound = 1;
@@ -537,7 +547,8 @@ typedef enum {
   ROLE_STICK,
   ROLE_LOOK,
   ROLE_BUTTON,
-  ROLE_IGNORED, // not on a button while only buttons are live, or only closed MENU's tray; ignored until it lifts
+  ROLE_IGNORED,  // not on a button while only buttons are live, or only closed MENU's tray; ignored until it lifts
+  ROLE_MESSAGES, // on the HUD's messages box (a tap: all read; held: NETRICSA)
 } IOSTouchRole;
 
 typedef struct {
@@ -548,8 +559,13 @@ typedef struct {
   double tDown;         // when it began
   int bFired;           // QUICK SAVE, QUICK LOAD: the hold is over (a save or load was asked for, by this finger or
                         // another one on either button, or it slid off). MENU: the hold is over (tray opened, or
-                        // slid off)
+                        // slid off). The unread messages box: the touch does nothing more (NETRICSA was asked for,
+                        // by this finger or another one on the box, or it slid off, or the box went away)
   int trayButton;       // MENU, after its tray opened: the tray button under the finger, or -1
+  // The messages box: where the finger landed, the box as it was laid out then and where the HUD drew it then
+  // (IOSTouch_StillOnMessages)
+  double xDown, yDown;
+  IOSTouchRect rLaidDown, rNowDown;
 } IOSTouchSlot;
 
 static IOSTouchSlot _aSlots[IOSTOUCH_MAX_TOUCHES];
@@ -562,8 +578,9 @@ static int _iRequests = 0;                 // IOSTOUCH_REQ_* not handed out yet
 static IOSTouchHud _hud;                   // the latest HUD state
 static int _bTrayOpen = 0;                 // MENU's tray
 static int _bShowFps = 0;                  // the FPS readout (the view keeps it in the app's settings)
-// how far QUICK SAVE's, QUICK LOAD's and MENU's hold rings have filled
-static float _fSaveRing = 0.0f, _fLoadRing = 0.0f, _fMenuRing = 0.0f;
+// how far QUICK SAVE's, QUICK LOAD's and MENU's hold rings, and the unread
+// messages box's, have filled
+static float _fSaveRing = 0.0f, _fLoadRing = 0.0f, _fMenuRing = 0.0f, _fMessagesRing = 0.0f;
 static double _tLastTick = 0.0;            // when IOSTouch_TickHolds last ran (0: not since the last reset)
 // The FPS readout: frames counted since _ulFpsFrames at _tFpsBase, and the
 // number it shows (-1: none measured yet)
@@ -580,6 +597,15 @@ static int IOSTouch_IsShown(int button)
   if (button == BTN_BOMB) return _hud.bValid && _hud.ctBombs > 0;
   if (button == BTN_TRAYFPS || button == BTN_TRAYKEYS) return _bTrayOpen;
   return 1;
+}
+
+// What BOMB says: how many serious bombs there are, as the HUD's bomb box at
+// the bottom right did on PC (it isn't drawn on iOS). BOMB only shows with
+// one or more.
+static void IOSTouch_BombLabel(int ctBombs, char *str, size_t size)
+{
+  if (ctBombs > 0) snprintf(str, size, "BOMB\n%d", ctBombs);
+  else snprintf(str, size, "BOMB");
 }
 
 // Closest showing button the touch is on (with a little forgiveness), so a
@@ -605,6 +631,39 @@ static int IOSTouch_IsOnButton(double x, double y, int button)
 {
   const IOSTouchButton *b = &_aButtons[button];
   return hypot(x - b->x, y - b->y) <= b->radius + 6.0;
+}
+
+// Whether the HUD's messages box shows now: in a game being played, while the
+// HUD draws it (blinking with unread messages, dim without; not at all with
+// the HUD's messages turned off)
+static int IOSTouch_MessagesShown(void)
+{
+  return _iMode == IOSTOUCH_GAMEPLAY && _hud.bValid && _hud.bMessages && _rMessages.bValid;
+}
+
+// Whether (x,y) is on the unread messages box, while it shows: where it sits
+// or where it was drawn last (with a little forgiveness, but never on the
+// FPS readout, which isn't part of it). A button within reach takes the
+// touch first (IOSTouch_TouchBegan).
+static int IOSTouch_IsOnMessages(double x, double y)
+{
+  if (!IOSTouch_MessagesShown()) return 0;
+  if (IOSTouch_DistToRect(x, y, &_rMessages) > IOSTOUCH_MESSAGES_REACH
+      && !(_rMessagesNow.bValid && IOSTouch_DistToRect(x, y, &_rMessagesNow) <= IOSTOUCH_MESSAGES_REACH)) return 0;
+  return !(_bShowFps && fabs(x - _fFpsX) <= IOSTOUCH_FPS_W * 0.5 && fabs(y - _fFpsY) <= IOSTOUCH_FPS_H * 0.5);
+}
+
+// Whether a touch that came down on the messages box (s) is still on it at
+// (x,y): while the box shows, laid out as it was then, the finger on it --
+// or still where it landed, once the HUD has drawn the box somewhere else
+// since (a new message drops it down a little and back up again, under a
+// finger kept still: that finger mustn't count as having slid off)
+static int IOSTouch_StillOnMessages(const IOSTouchSlot *s, double x, double y)
+{
+  if (!IOSTouch_MessagesShown() || !IOSTouch_SameRect(&s->rLaidDown, &_rMessages)) return 0;
+  if (IOSTouch_IsOnMessages(x, y)) return 1;
+  return !IOSTouch_SameRect(&s->rNowDown, &_rMessagesNow)
+         && hypot(x - s->xDown, y - s->yDown) <= IOSTOUCH_MESSAGES_REACH;
 }
 
 static int IOSTouch_IsTrayButton(int button)
@@ -720,6 +779,13 @@ static void IOSTouch_TouchBegan(const void *touch, double x, double y, double W,
     s->role = ROLE_BUTTON;
     _aButtonHeld[s->button]++;
   }
+  else if (IOSTouch_IsOnMessages(x, y)) {
+    s->role = ROLE_MESSAGES; // neither moves nor looks; the box does its thing as the finger lifts or holds on
+    s->xDown = x;
+    s->yDown = y;
+    s->rLaidDown = _rMessages;
+    s->rNowDown = _rMessagesNow;
+  }
   else if (_iMode != IOSTOUCH_GAMEPLAY) {
     s->role = ROLE_IGNORED; // only the buttons are live (console open, paused)
   }
@@ -777,6 +843,11 @@ static int IOSTouch_TouchMoved(const void *touch, double x, double y)
   if (s->role == ROLE_BUTTON && IOSTouch_IsQuickHold(s->button) && !IOSTouch_IsOnButton(x, y, s->button)) {
     s->bFired = 1;
   }
+  // The unread messages box: as those, a finger that leaves it neither marks
+  // the messages read nor opens NETRICSA, even if it comes back on
+  if (s->role == ROLE_MESSAGES && !IOSTouch_StillOnMessages(s, x, y)) {
+    s->bFired = 1;
+  }
   s->x = x;
   s->y = y;
   return bLooksChanged;
@@ -784,12 +855,15 @@ static int IOSTouch_TouchMoved(const void *touch, double x, double y)
 
 // A finger passed (x,y) on its way to where IOSTouch_TouchMoved is told it
 // went next (UIKit merges a finger's moves while the game's frame runs, and
-// keeps the places in between): only QUICK SAVE and QUICK LOAD care, so a
-// slide off one and back on still ends its hold
+// keeps the places in between): only QUICK SAVE, QUICK LOAD and the unread
+// messages box care, so a slide off one and back on still ends its hold
 static void IOSTouch_TouchPassed(const void *touch, double x, double y)
 {
   IOSTouchSlot *s = touch ? IOSTouch_FindSlot(touch) : NULL;
   if (s && s->role == ROLE_BUTTON && IOSTouch_IsQuickHold(s->button) && !IOSTouch_IsOnButton(x, y, s->button)) {
+    s->bFired = 1;
+  }
+  if (s && s->role == ROLE_MESSAGES && !IOSTouch_StillOnMessages(s, x, y)) {
     s->bFired = 1;
   }
 }
@@ -835,6 +909,15 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
     if (s->button == BTN_QUICKLOAD) _fLoadRing = 0.0f;
     if (s->button == BTN_MENU) _fMenuRing = 0.0f;
   }
+  else if (s->role == ROLE_MESSAGES) {
+    // A tap -- lifted on the box before its hold opened NETRICSA, without
+    // having left it: every message read (once the main loop gets to it).
+    // With nothing unread (the box dim) a tap does nothing.
+    if (!bCancelled && !s->bFired && IOSTouch_StillOnMessages(s, x, y) && _hud.ctMessages > 0) {
+      _iRequests |= IOSTOUCH_REQ_READMESSAGES;
+    }
+    _fMessagesRing = 0.0f;
+  }
   else if (s->role == ROLE_STICK) {
     _bStickActive = 0;
     _fStickX = _fStickY = 0.0f;
@@ -844,7 +927,8 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
   IOSTouch_SetHeld(IOSTouch_HeldButtons(), ulLifted);
 }
 
-// Once per frame while shown: the QUICK SAVE, QUICK LOAD and MENU holds
+// Once per frame while shown: the QUICK SAVE, QUICK LOAD and MENU holds, and
+// the unread messages box's
 static void IOSTouch_TickHolds(double now)
 {
   // QUICK SAVE and QUICK LOAD go off only once the finger is known to have
@@ -857,11 +941,29 @@ static void IOSTouch_TickHolds(double now)
   const double known = _tLastTick;
   _tLastTick = now;
   // the furthest along of QUICK SAVE's and of QUICK LOAD's holds (a touch each)
-  float fSaveRing = 0.0f, fLoadRing = 0.0f;
+  float fSaveRing = 0.0f, fLoadRing = 0.0f, fMessagesRing = 0.0f;
   int iDone = -1; // the quick hold that completed: BTN_QUICKSAVE or BTN_QUICKLOAD
+  int bMessagesDone = 0; // a hold on the unread messages box completed
   for (int i = 0; i < IOSTOUCH_MAX_TOUCHES; i++) {
     IOSTouchSlot *s = &_aSlots[i];
-    if (!s->touch || s->role != ROLE_BUTTON || s->bFired) continue;
+    if (!s->touch || s->bFired) continue;
+    if (s->role == ROLE_MESSAGES) {
+      if (!IOSTouch_StillOnMessages(s, s->x, s->y)) {
+        // the box went away under the finger (the HUD stopped drawing it) or
+        // was laid out somewhere else: this touch does nothing more
+        s->bFired = 1;
+        continue;
+      }
+      // done once the finger is known to have stayed on long enough, as QUICK
+      // SAVE's hold. The ring shows that too, so it is only ever full when
+      // NETRICSA opens: a lift a moment after it looked full must not be
+      // taken for a tap, which marks the messages read instead (QUICK SAVE's
+      // ring, where that lift just does nothing, shows the time down).
+      if (known - s->tDown >= IOSTOUCH_MESSAGES_HOLD) bMessagesDone = 1;
+      else fMessagesRing = fmaxf(fMessagesRing, (float)fmax(0.0, (known - s->tDown) / IOSTOUCH_MESSAGES_HOLD));
+      continue;
+    }
+    if (s->role != ROLE_BUTTON) continue;
     if (IOSTouch_IsQuickHold(s->button)) {
       if (!IOSTouch_IsOnButton(s->x, s->y, s->button)) {
         // off it (a finger that slid off is already done, in
@@ -917,6 +1019,17 @@ static void IOSTouch_TickHolds(double now)
   }
   _fSaveRing = fSaveRing;
   _fLoadRing = fLoadRing;
+  if (bMessagesDone) {
+    // NETRICSA, once: every hold on the box ends, so two fingers on it ask
+    // once. The game gets it as one press of its Computer key (Game.cpp),
+    // which opens NETRICSA however the player's USE settings are.
+    for (int j = 0; j < IOSTOUCH_MAX_TOUCHES; j++) {
+      if (_aSlots[j].touch && _aSlots[j].role == ROLE_MESSAGES) _aSlots[j].bFired = 1;
+    }
+    fMessagesRing = 0.0f;
+    IOSTouch_SetHeld(IOSTouch_HeldButtons(), IOSTOUCH_COMPUTER);
+  }
+  _fMessagesRing = fMessagesRing;
 }
 
 // Once per frame while shown: the FPS readout counts the frames the game
@@ -948,7 +1061,7 @@ static void IOSTouch_ResetTouches(int bReading)
   _bStickActive = 0;
   _fStickX = _fStickY = 0.0f;
   _iRequests = 0;
-  _fSaveRing = _fLoadRing = _fMenuRing = 0.0f;
+  _fSaveRing = _fLoadRing = _fMenuRing = _fMessagesRing = 0.0f;
   _tLastTick = 0.0;
   _bFpsBase = 0;
   IOSTouch_ResetShared(bReading);
@@ -959,9 +1072,9 @@ static void IOSTouch_ResetTouches(int bReading)
 // Kept in the app's settings: whether the FPS readout shows
 #define IOSTOUCH_FPS_DEFAULTS_KEY @"iosTouchShowFps"
 
-static IOSTouchRect _rScoreFrac, _rHiScoreFrac, _rAmmoFrac, _rMessagesFrac; // the last boxes the HUD showed (fractions)
+static IOSTouchRect _rScoreFrac, _rHiScoreFrac, _rMessagesFrac; // the last boxes the HUD showed (fractions)
 // What the current layout was made for
-static IOSTouchRect _rLayoutScore, _rLayoutHiScore, _rLayoutAmmo, _rLayoutMessages; // in points
+static IOSTouchRect _rLayoutScore, _rLayoutHiScore, _rLayoutMessages; // in points
 static int _iLayoutCutoutRight = -1;
 static unsigned int _ulFramesDrawn = 0; // the game's frame count at the last IOSTouch_Update
 
@@ -984,6 +1097,8 @@ static int IOSTouch_CutoutMayBeRight(UIView *v)
   CAShapeLayer *saveRing; // QUICK SAVE's hold progress
   CAShapeLayer *loadRing; // QUICK LOAD's
   CAShapeLayer *menuRing; // MENU's
+  UIView *messagesBack;   // over the HUD's unread messages box while a finger is on it...
+  CAShapeLayer *messagesRing; // ...and its hold's ring, round the box
   UIView *trayBack;       // behind MENU's tray
   UILabel *fpsLabel;      // the FPS readout...
   int iFpsLabel;          // ...the number it says (-1: none yet)
@@ -992,6 +1107,7 @@ static int IOSTouch_CutoutMayBeRight(UIView *v)
 }
 - (void)resetAll;
 - (void)tick;
+- (void)placeMessages;
 - (void)refreshButtonLooks;
 @end
 
@@ -1068,6 +1184,21 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     menuRing = IOSTouch_MakeHoldRing(_aButtons[BTN_MENU].radius);
     [aButtonViews[BTN_MENU].layer addSublayer:menuRing];
 
+    // The HUD's unread messages box lights up while a finger is on it, and a
+    // ring round it fills while it is held (as MENU's): laid out over the box
+    messagesBack = [[UIView alloc] initWithFrame:CGRectZero];
+    messagesBack.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
+    messagesBack.layer.cornerRadius = 6.0;
+    messagesBack.userInteractionEnabled = NO;
+    messagesBack.hidden = YES;
+    messagesRing = [CAShapeLayer layer];
+    messagesRing.fillColor = [UIColor clearColor].CGColor;
+    messagesRing.strokeColor = [UIColor colorWithRed:0.47 green:0.78 blue:1.0 alpha:0.95].CGColor;
+    messagesRing.lineWidth = 3.0;
+    messagesRing.strokeEnd = 0.0;
+    [messagesBack.layer addSublayer:messagesRing];
+    [self addSubview:messagesBack];
+
     // MENU's tray: its two buttons on a dark backing, hidden until a hold on
     // MENU opens it. The keyboard button shows the keyboard symbol.
     trayBack = [[UIView alloc] initWithFrame:CGRectZero];
@@ -1129,17 +1260,35 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   // whenever they move, or the cutout changes sides
   _rLayoutScore = IOSTouch_RectInPoints(&_rScoreFrac, W, H);
   _rLayoutHiScore = IOSTouch_RectInPoints(&_rHiScoreFrac, W, H);
-  _rLayoutAmmo = IOSTouch_RectInPoints(&_rAmmoFrac, W, H);
   _rLayoutMessages = IOSTouch_RectInPoints(&_rMessagesFrac, W, H);
   _iLayoutCutoutRight = IOSTouch_CutoutMayBeRight(self);
   IOSTouch_LayoutButtons(W, H, in.left, in.top, in.right, in.bottom, _iLayoutCutoutRight,
-                         &_rLayoutScore, &_rLayoutHiScore, &_rLayoutAmmo, &_rLayoutMessages);
+                         &_rLayoutScore, &_rLayoutHiScore, &_rLayoutMessages);
 
   for (int i = 0; i < IOSTOUCH_NUM_BUTTONS; i++) {
     aButtonViews[i].center = CGPointMake(_aButtons[i].x, _aButtons[i].y);
   }
   trayBack.frame = CGRectMake(_rTrayBack.x0, _rTrayBack.y0, _rTrayBack.x1 - _rTrayBack.x0, _rTrayBack.y1 - _rTrayBack.y0);
   fpsLabel.center = CGPointMake(_fFpsX, _fFpsY);
+
+  [self placeMessages];
+}
+
+// Over the unread messages box where the HUD drew it last (or where it sits),
+// a little bigger, with the ring just inside its edge (the box itself is the
+// HUD's, drawn by the game)
+- (void)placeMessages
+{
+  const IOSTouchRect *r = _rMessagesNow.bValid ? &_rMessagesNow : &_rMessages;
+  if (!r->bValid) return;
+  const CGRect rBack = CGRectMake(r->x0 - 3, r->y0 - 3, r->x1 - r->x0 + 6, r->y1 - r->y0 + 6);
+  if (CGRectEqualToRect(messagesBack.frame, rBack)) return;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  messagesBack.frame = rBack;
+  messagesRing.frame = messagesBack.bounds;
+  messagesRing.path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(messagesBack.bounds, 1.5, 1.5) cornerRadius:5.0].CGPath;
+  [CATransaction commit];
 }
 
 - (void)setRing:(CAShapeLayer *)ring progress:(CGFloat)progress
@@ -1205,6 +1354,19 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   }
 }
 
+// The unread messages box lit while a finger that can still tap or hold it is on it
+- (void)refreshMessages
+{
+  int bOn = 0;
+  for (int t = 0; t < IOSTOUCH_MAX_TOUCHES && !bOn; t++) {
+    bOn = _aSlots[t].touch && _aSlots[t].role == ROLE_MESSAGES && !_aSlots[t].bFired;
+  }
+  bOn = bOn && IOSTouch_MessagesShown();
+  if (bOn) [self placeMessages];
+  if (messagesBack.hidden == bOn) messagesBack.hidden = !bOn;
+  [self setRing:messagesRing progress:_fMessagesRing];
+}
+
 - (void)refreshAll
 {
   [self refreshButtonLooks];
@@ -1212,6 +1374,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   [self setRing:saveRing progress:_fSaveRing];
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
+  [self refreshMessages];
 }
 
 // ------------------------------------------------------------ touches
@@ -1241,6 +1404,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   }
   if (bLooksChanged) [self refreshButtonLooks];
   [self refreshStick];
+  [self refreshMessages];
 }
 
 - (void)endTouches:(NSSet<UITouch *> *)touches cancelled:(int)bCancelled
@@ -1255,8 +1419,8 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self endTouches:touches cancelled:0]; }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self endTouches:touches cancelled:1]; }
 
-// Once per frame while shown: the QUICK SAVE, QUICK LOAD and MENU holds, the
-// context buttons and the FPS readout
+// Once per frame while shown: the QUICK SAVE, QUICK LOAD, MENU and unread
+// messages holds, the context buttons and the FPS readout
 - (void)tick
 {
   const double now = CACurrentMediaTime();
@@ -1267,14 +1431,17 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
   [self setRing:saveRing progress:_fSaveRing];
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
+  [self refreshMessages];
 
-  // BOMB says how many there are
+  // BOMB says how many there are (IOSTouch_BombLabel)
   const int ctBombs = _hud.bValid ? _hud.ctBombs : 0;
   if (ctBombs != ctBombsShown) {
     ctBombsShown = ctBombs;
+    char str[24];
+    IOSTouch_BombLabel(ctBombs, str, sizeof(str));
     UILabel *l = aButtonViews[BTN_BOMB];
-    l.text = ctBombs > 1 ? [NSString stringWithFormat:@"BOMB\n%d", ctBombs] : @"BOMB";
-    l.font = [UIFont boldSystemFontOfSize:(ctBombs > 1 ? 10 : 13)];
+    l.text = [NSString stringWithUTF8String:str];
+    l.font = [UIFont boldSystemFontOfSize:IOSTouch_FontSize(str, _aButtons[BTN_BOMB].radius)];
   }
   // ZOOM and BOMB come and go, the tray opens, the readout counts
   if (aButtonViews[BTN_ZOOM].hidden == IOSTouch_IsShown(BTN_ZOOM) || aButtonViews[BTN_BOMB].hidden == IOSTouch_IsShown(BTN_BOMB)
@@ -1363,7 +1530,6 @@ static int IOSTouch_UpdateOverlay(void *pSDLWindow, int iMode, const IOSTouchHud
     _hud = *pHud;
     IOSTouch_KeepRect(&_rScoreFrac, pHud->afScore);
     IOSTouch_KeepRect(&_rHiScoreFrac, pHud->afHiScore);
-    IOSTouch_KeepRect(&_rAmmoFrac, pHud->afAmmo);
     IOSTouch_KeepRect(&_rMessagesFrac, pHud->afMessages);
   }
 
@@ -1409,10 +1575,13 @@ static int IOSTouch_UpdateOverlay(void *pSDLWindow, int iMode, const IOSTouchHud
     CGSize sz = _pOverlay.bounds.size;
     IOSTouchRect rScore = IOSTouch_RectInPoints(&_rScoreFrac, sz.width, sz.height);
     IOSTouchRect rHiScore = IOSTouch_RectInPoints(&_rHiScoreFrac, sz.width, sz.height);
-    IOSTouchRect rAmmo = IOSTouch_RectInPoints(&_rAmmoFrac, sz.width, sz.height);
     IOSTouchRect rMessages = IOSTouch_RectInPoints(&_rMessagesFrac, sz.width, sz.height);
+    // where the HUD drew the messages box last (it drops down as a message comes in): not laid out for
+    IOSTouchRect rNowFrac = { 0, 0, 0, 0, 0 };
+    if (pHud) IOSTouch_KeepRect(&rNowFrac, pHud->afMessagesNow);
+    _rMessagesNow = IOSTouch_RectInPoints(&rNowFrac, sz.width, sz.height);
     if (!IOSTouch_SameRect(&rScore, &_rLayoutScore) || !IOSTouch_SameRect(&rHiScore, &_rLayoutHiScore)
-        || !IOSTouch_SameRect(&rAmmo, &_rLayoutAmmo) || !IOSTouch_SameRect(&rMessages, &_rLayoutMessages)
+        || !IOSTouch_SameRect(&rMessages, &_rLayoutMessages)
         || IOSTouch_CutoutMayBeRight(_pOverlay) != _iLayoutCutoutRight) {
       [_pOverlay setNeedsLayout];
     }
