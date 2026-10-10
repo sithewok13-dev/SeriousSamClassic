@@ -8,31 +8,42 @@
   that and on a line of its own. A '-' in the version after "ios-"
   (ios-v0.2-beta1) makes a prerelease; without one (ios-v0.2) the release is
   marked as the latest release. Only the .ipa files named in RELEASE_IPAS in ios.yml are
-  attached (for now serioussamse-ios.ipa, The Second Encounter). Links must be
+  attached (since ios-v0.2 both: serioussamse-ios.ipa, The Second Encounter,
+  and serioussam-ios.ipa, The First Encounter). Links must be
   absolute: relative links don't resolve on a release page. Keep each
   paragraph and list item on one line: a release page turns every line break
   into a visible one.
 -->
 
-**Serious Sam: The Second Encounter for iOS v0.1**: an unofficial iPhone build of *Serious Sam: The Second Encounter*, running on Croteam's open-source Serious Engine 1 (by way of [tx00100xt/SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic)), with on-screen touch controls made for it.
+**Serious Sam Classic for iOS v0.2**: unofficial iPhone builds of *Serious Sam: The First Encounter* and *Serious Sam: The Second Encounter*, running on Croteam's open-source Serious Engine 1 (by way of [tx00100xt/SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic)), with on-screen touch controls made for them.
 
-**You need your own copy of the game; no game files are included.** You copy the game's files from your PC copy of The Second Encounter onto your iPhone (see *Install*).
+**You need your own copy of the game; no game files are included.** You copy the game's files from your PC copy of The First Encounter or The Second Encounter onto your iPhone (see *Install*).
 
-**This release is The Second Encounter only.** The First Encounter may follow in a later release.
+**Two apps, one for each game:** **Sam FE** (`serioussam-ios.ipa`) plays The First Encounter, and **Sam SE** (`serioussamse-ios.ipa`) plays The Second Encounter. Install the one for the game you have, or both. **Sam FE is new in this release.** It has been played on an iPhone and tested on a computer, but it has had less testing than Sam SE so far (see *Known limitations*). If something goes wrong in it, please report it (see *Found a bug?*).
 
-**New here?** *Requirements* and *Install* are near the bottom of this page, just above the download.
+**New here?** *Known limitations*, *Requirements* and *Install* are near the bottom of this page, just above the download.
 
-### What's in ios-v0.1
+### What's in ios-v0.2
 
-The first public release:
+**New since ios-v0.1: The First Encounter**, as an app of its own, **Sam FE**, with the same touch controls as The Second Encounter. What's different in it:
 
-- **Touch controls made for Serious Sam:** a move stick that appears under your left thumb, drag anywhere to look, and **FIRE**, **CROUCH**, **USE** and **JUMP** under your right thumb. **ZOOM** appears while you hold the sniper rifle, and **BOMB** (with how many you have) while you carry serious bombs.
+- **No ZOOM and no BOMB:** The First Encounter has no sniper rifle and no serious bombs, so those two buttons never show. Their places, right of FIRE and right of JUMP, are just look area, and the other buttons don't move to fill them.
+- **Its own weapon wheel**, with 11 slices for its 11 weapons: Knife, Colt, Two Colts, Shotgun, Double Shotgun, Tommygun, Minigun, Rocket Launcher, Grenade Launcher, Lasergun and Cannon. There's no chainsaw, flamethrower or sniper rifle in The First Encounter.
+- **No power-ups** in the HUD's top row: The First Encounter has none.
+- **NETRICSA opens by itself at the start of a level**, with the level's briefing, as on PC: tap **Exit**, at its top right, to play. On the first level, a long flyover comes before it: as on PC, FIRE or USE skips the flyover only at some points in it, so if a tap doesn't skip it, wait a little and try again, or watch it to the end.
+- **Its levels aren't inside its `.gro` files:** they're in the game's `Levels` folder, so Sam FE needs that folder copied too (see *Install*).
+
+**The Second Encounter app is unchanged:** Sam SE is the same code as in ios-v0.1, just built again. If you already have Sam SE from ios-v0.1, you don't need to install it again.
+
+Both apps have:
+
+- **Touch controls made for Serious Sam:** a move stick that appears under your left thumb, drag anywhere to look, and **FIRE**, **CROUCH**, **USE** and **JUMP** under your right thumb. In The Second Encounter, **ZOOM** appears while you hold the sniper rifle, and **BOMB** (with how many you have) while you carry serious bombs.
 - **A weapon wheel** on **NEXT WPN** and **PREV WPN**: every weapon with its HUD icon and its ammo, so you can pick the one you want. Slide to pick in one movement, or hold to open it and tap. A quick tap still switches to the next or previous weapon.
 - **Tilt aiming (gyro):** aim by turning the phone, on top of dragging. It's **off** until you switch it on in MENU's hidden tray.
 - **QUICK SAVE** and **QUICK LOAD** that need a short hold, so a stray touch can't save over your quick save or load an old one.
 - **MENU's hidden tray** (hold **MENU**): tilt aiming's sensitivity and mode, an FPS counter, and the keyboard for the game's console.
 - **The messages envelope** in the HUD's top row: tap it to mark your messages read, hold it to open NETRICSA.
-- **A HUD that fits iPhone screens:** clear of the rounded corners, the notch or Dynamic Island and the home bar, with the power-ups moved to the top row and the ammo boxes at the bottom right gone (BOMB counts your bombs instead).
+- **A HUD that fits iPhone screens:** clear of the rounded corners, the notch or Dynamic Island and the home bar, with the ammo boxes at the bottom right gone. In The Second Encounter, the power-ups move to the top row and BOMB counts your bombs.
 - **The game's menus work by tapping**, on/off options and sliders included.
 - **Leaving the app pauses the game** and saves your settings (not your game: quick save first).
 
@@ -58,7 +69,7 @@ Where everything is (on a phone, turn it sideways to see the whole picture):
                          [weapon and ammo]
 ```
 
-Exact positions shift a little to fit your screen, the camera cutout and the HUD. ZOOM and BOMB only show when you can use them. Buttons are slightly see-through until you touch them, and a touch just beside a button still counts. While the game is paused, only **RESUME** (in the middle of the screen) and **MENU** show.
+Exact positions shift a little to fit your screen, the camera cutout and the HUD. ZOOM and BOMB only show when you can use them, so never in The First Encounter, which also has no power-ups. Buttons are slightly see-through until you touch them, and a touch just beside a button still counts. While the game is paused, only **RESUME** (in the middle of the screen) and **MENU** show.
 
 #### Moving and looking
 
@@ -75,10 +86,10 @@ Exact positions shift a little to fit your screen, the camera cutout and the HUD
 | --- | --- | --- |
 | **FIRE** | bottom right, the big one | Fires for as long as you hold it. |
 | **CROUCH** | left of FIRE | Crouches while held. |
-| **USE** | up and left of FIRE | Works switches. It never opens NETRICSA (that's the envelope) and never works the sniper scope (that's ZOOM). |
+| **USE** | up and left of FIRE | Works switches. It never opens NETRICSA (that's the envelope), and in The Second Encounter it never works the sniper scope (that's ZOOM). |
 | **JUMP** | above FIRE | Jumps. |
-| **ZOOM** | right of FIRE, only while the sniper rifle is in your hands | Tap to look through the scope, tap again to stop. Hold it while scoped to zoom in further. Like Use on PC, it works a switch instead if there's one in front of you. |
-| **BOMB** | right of JUMP, only while you carry serious bombs | Shows how many you have, under the word BOMB. Sets one off when you **lift** your finger on it. Dragging on it doesn't look, so a look swipe that starts on BOMB can't waste a bomb. |
+| **ZOOM** | right of FIRE, only while the sniper rifle is in your hands (The Second Encounter only) | Tap to look through the scope, tap again to stop. Hold it while scoped to zoom in further. Like Use on PC, it works a switch instead if there's one in front of you. |
+| **BOMB** | right of JUMP, only while you carry serious bombs (The Second Encounter only) | Shows how many you have, under the word BOMB. Sets one off when you **lift** your finger on it. Dragging on it doesn't look, so a look swipe that starts on BOMB can't waste a bomb. |
 | **NEXT WPN** and **PREV WPN** | top left, below your score | Tap: next or previous weapon. Slide or hold: the weapon wheel. See *The weapon wheel* below. |
 | **QUICK SAVE** and **QUICK LOAD** | top right | Hold for about a third of a second. See *Quick save and quick load* below. |
 | **MENU** | top right corner | Tap: the game's menu. Hold: the hidden tray. |
@@ -92,7 +103,7 @@ The touch buttons don't go through the game's key bindings, so they keep working
 
 Both buttons have three gestures, and both open the same wheel:
 
-- **Quick tap:** lift within about a third of a second, without sliding. NEXT WPN switches to your next weapon and PREV WPN to the previous one, as you lift. With the sniper scope on, NEXT WPN zooms out and PREV WPN zooms in instead, as on PC.
+- **Quick tap:** lift within about a third of a second, without sliding. NEXT WPN switches to your next weapon and PREV WPN to the previous one, as you lift. In The Second Encounter, with the sniper scope on, NEXT WPN zooms out and PREV WPN zooms in instead, as on PC.
 - **Slide** (the quickest way to pick): touch the button and slide your thumb away. The wheel opens **at once**. Keep sliding towards a weapon: a short slide in its direction is enough. If you can take it, its slice pops out. Its name shows in the middle, and, on iPhones with haptics, you feel a light tick. **Lift to take it.**
 - **Hold:** touch and hold still for about a third of a second. A ring fills round the button, then the wheel opens and **stays open**. Lift, then **tap** a weapon to take it. (Or, without lifting, slide out to pick by sliding after all.)
 
@@ -103,7 +114,7 @@ Changing your mind:
 
 What the wheel shows:
 
-- **One slice per weapon, 14 in all**, always in the same place, in the order NEXT WPN steps through them, clockwise from the bottom left: Knife, Chainsaw, Colt, Two Colts, Shotgun, Double Shotgun, Tommygun, Minigun, Rocket Launcher, Grenade Launcher, Flamethrower, Sniper Rifle, Lasergun, Cannon. The serious bomb isn't on the wheel: it has BOMB.
+- **One slice per weapon**, always in the same place, in the order NEXT WPN steps through them, clockwise from the bottom left. **The Second Encounter** has 14: Knife, Chainsaw, Colt, Two Colts, Shotgun, Double Shotgun, Tommygun, Minigun, Rocket Launcher, Grenade Launcher, Flamethrower, Sniper Rifle, Lasergun, Cannon. Its serious bomb isn't on the wheel: it has BOMB. **The First Encounter** has 11: Knife, Colt, Two Colts, Shotgun, Double Shotgun, Tommygun, Minigun, Rocket Launcher, Grenade Launcher, Lasergun, Cannon.
 - **The weapon's own HUD icon**, with its ammo under it (up to 999). The knife, chainsaw and colts show no count. Two Colts shows the colt twice.
 - **Colours:** each slice is tinted by its kind of ammo, so weapons that share ammo share a colour (the two shotguns; the tommygun and the minigun).
 - **White edge, not popped out:** the weapon in your hands.
@@ -157,7 +168,7 @@ Good to know:
 
 - **The view never springs back.** There's no "straight ahead" position: however you hold the phone when you start is where you start from.
 - Tilting the top edge of the screen toward you looks up, even with *INVERT LOOK* on.
-- **At 1.0x the view turns as far as the phone does.** The game's mouse settings don't change tilt aiming: use **SENS**. Very slow drifts are damped on purpose, so a phone held still doesn't creep. The sniper scope's zoom slows it down, as it slows every turn.
+- **At 1.0x the view turns as far as the phone does.** The game's mouse settings don't change tilt aiming: use **SENS**. Very slow drifts are damped on purpose, so a phone held still doesn't creep. In The Second Encounter, the sniper scope's zoom slows it down, as it slows every turn.
 - Tilt aiming pauses while the weapon wheel or MENU's tray is open. It's off in the menus, NETRICSA and the console, while the game is paused or loading, and while you're out of the app.
 - On a device without a motion sensor, GYRO says **NO GYRO** and does nothing.
 
@@ -167,6 +178,7 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 
 - **Tap the envelope** to mark every message read, so it stops blinking. NETRICSA doesn't open. Your saves keep which messages are read.
 - **Hold the envelope** until a ring fills round it (about half a second) to open **NETRICSA**. Inside NETRICSA, tap as you'd click.
+- **In The First Encounter, NETRICSA also opens by itself** at the start of a level, with the level's briefing, as on PC. Tap **Exit**, at its top right, to get to the game.
 - **With nothing unread**, the envelope stays, dim, with a **0**, so you can always hold it to open NETRICSA. A tap on it then does nothing.
 - If your finger slides off the envelope, nothing happens.
 - Until you've opened NETRICSA once, the game reminds you when a new message comes in: *Hold the envelope at the top to read the message!*
@@ -175,9 +187,9 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 
 #### The HUD
 
-- **It fits rounded, notched screens:** the HUD, the game's messages, the clock and the stats stay clear of the rounded corners, the notch or Dynamic Island and the home bar. (The sniper scope's view still fills the whole screen.)
-- **No ammo boxes at the bottom right:** that row isn't drawn, because it would be under FIRE. Your current weapon and its ammo still show at the bottom middle, as on PC, and **BOMB** shows how many serious bombs you have.
-- **Power-ups** show in the top row, between the score and the high score: the same icons, bars and running-out beep as on PC.
+- **It fits rounded, notched screens:** the HUD, the game's messages, the clock and the stats stay clear of the rounded corners, the notch or Dynamic Island and the home bar. (In The Second Encounter, the sniper scope's view still fills the whole screen.)
+- **No ammo boxes at the bottom right:** that row isn't drawn, because it would be under FIRE. Your current weapon and its ammo still show at the bottom middle, as on PC, and in The Second Encounter **BOMB** shows how many serious bombs you have.
+- **Power-ups** (The Second Encounter only) show in the top row, between the score and the high score: the same icons, bars and running-out beep as on PC.
 - **The envelope** is in the top row too (see above).
 
 #### Menus, leaving the app, and the console
@@ -198,50 +210,54 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 
 ### Known limitations
 
-- **The Second Encounter only.** The First Encounter isn't in this release, and its game files won't start this app.
+- **The First Encounter has had less testing than The Second Encounter.** It has been played on one iPhone, and tested on a computer with a PC copy of the game set out as on the phone and simulated touches. There the intro, the menus, a new game, moving, looking, FIRE, JUMP and CROUCH, the weapon wheel, quick save and quick load, the envelope and NETRICSA, tilt aiming, leaving the app and coming back, the second level and the demos all worked. If something goes wrong in Sam FE, please report it (see *Found a bug?*).
 - **Single player only.** The touch controls only appear in single-player games. Co-op and multiplayer have no touch controls and haven't been tested.
 - **No typing in the game's menus** (player names, save names). Typing works in the console.
 - **NETRICSA by touch needs the envelope**, so keep the HUD's messages box on.
 - **Leaving the app doesn't save your game**, only your settings.
-- **Limited testing so far:** it has been played on one iPhone. Not tried yet: iPads; older iOS versions (it's built for iOS 14 and newer); game controllers, hardware keyboards, mice and trackpads; game files from other editions (*Serious Sam Classics: Revolution*, the HD remakes, CD and non-English versions); PC saves on the phone, or phone saves on PC; restoring a backup of your saves; whether installing a newer version with your sideloading tool keeps your files.
+- **Limited testing so far:** Sam SE and Sam FE have each been played on one iPhone so far. Not tried yet: iPads; older iOS versions (both apps are built for iOS 14 and newer); game controllers, hardware keyboards, mice and trackpads; game files from other editions (*Serious Sam Classics: Revolution*, the HD remakes, CD and non-English versions); PC saves on the phone, or phone saves on PC; restoring a backup of your saves; whether installing a newer version with your sideloading tool keeps your files.
 - **The HUD on narrower iPhones:** with the HUD set larger than normal, or the legacy HUD, a layout check found that the messages count or a boss's health bar can sit under QUICK SAVE, and the armour icon under the notch or Dynamic Island. On the smallest iPhones (the size of the first iPhone SE), the messages count and the boss's health bar can sit under QUICK SAVE at the normal HUD size too. This hasn't been seen on a phone.
 
 ### Requirements
 
-- An **iPhone on iOS 14 or newer.** The app is also marked for iPad, but it has never been installed or tried on one.
-- **Your own PC copy of Serious Sam: The Second Encounter**, for its game files: the eight `.gro` files listed under *Install* and the `Help` folder, about 410 MB in the copy this was tested with. You'll need the computer it's installed on, to copy them to your iPhone.
-- A **sideloading tool or signing service** (something that installs apps from outside the App Store) that can install an app file (`.ipa`) you give it, for example Signulous. The `.ipa` isn't signed for your iPhone, so it can't be installed without one.
+- An **iPhone on iOS 14 or newer.** The apps are also marked for iPad, but neither has ever been installed or tried on one.
+- **Your own PC copy of the game**, for its game files. You'll need the computer it's installed on, to copy them to your iPhone.
+  - For **Sam FE**, *Serious Sam: The First Encounter*: its six `.gro` files and its `Levels`, `Help` and `Demos` folders, listed under *Install*, about 380 MB in the copy this was tested with.
+  - For **Sam SE**, *Serious Sam: The Second Encounter*: the eight `.gro` files listed under *Install* and the `Help` folder, about 410 MB in the copy this was tested with.
+- A **sideloading tool or signing service** (something that installs apps from outside the App Store) that can install an app file (`.ipa`) you give it, for example Signulous. The `.ipa` files aren't signed for your iPhone, so they can't be installed without one.
 
 ### Install
 
-1. Download **`serioussamse-ios.ipa`** below.
-2. Install it with your sideloading tool or signing service, following that tool's own instructions (whether iOS asks you to trust a developer or to turn on Developer Mode depends on the tool). On your home screen the app is called **Sam SE**. Its version is 0.1 followed by a build number.
-3. **Open Sam SE once.** With no game files yet, it shows a *Fatal Error* box saying *Game data not found*. Tap OK and the app closes. That's expected: by then the app has made its folder for your files.
-4. On your computer, open the folder The Second Encounter is installed in, and find:
-   - all the `.gro` files: `SE1_00.gro`, `SE1_00_Extra.gro`, `SE1_00_ExtraTools.gro`, `SE1_00_Levels.gro`, `SE1_00_Logo.gro`, `SE1_00_Music.gro`, `1_04_patch.gro` and `1_07_tools.gro`
-   - the `Help` folder, and a `Levels` folder if your game folder has one.
+1. Download the `.ipa` for your game, below: **`serioussam-ios.ipa`** for The First Encounter, or **`serioussamse-ios.ipa`** for The Second Encounter (*se* after *serioussam*, as in Sam SE). To play both games, download both and do each step for each app.
+2. Install it with your sideloading tool or signing service, following that tool's own instructions (whether iOS asks you to trust a developer or to turn on Developer Mode depends on the tool). On your home screen the app is called **Sam FE** (The First Encounter) or **Sam SE** (The Second Encounter). Both have the same icon, so tell them apart by the name. Its version shows as 0.1 followed by a build number, even though this release is v0.2: that's expected.
+3. **Open the app once.** With no game files yet, it shows a *Fatal Error* box saying *Game data not found*. Tap OK and the app closes. That's expected: by then the app has made its folder for your files, *On My iPhone > Sam FE* or *On My iPhone > Sam SE* in the Files app.
+4. On your computer, open the folder the game is installed in, and find:
+   - **for Sam FE (The First Encounter):** all the `.gro` files, `1_00c.gro`, `1_00c_scripts.gro`, `1_00c_Logo.gro`, `1_00_ExtraTools.gro`, `1_00_music.gro` and `1_04_patch.gro`, and the `Levels`, `Help` and `Demos` folders. **Don't leave out `Levels`:** The First Encounter's levels are in it, not in the `.gro` files.
+   - **for Sam SE (The Second Encounter):** all the `.gro` files, `SE1_00.gro`, `SE1_00_Extra.gro`, `SE1_00_ExtraTools.gro`, `SE1_00_Levels.gro`, `SE1_00_Logo.gro`, `SE1_00_Music.gro`, `1_04_patch.gro` and `1_07_tools.gro`, the `Help` folder, and a `Levels` folder if your game folder has one.
 
-   You don't need `Bin` or any of the other folders. Not sure where the game is installed? Search your computer for `SE1_00_Levels.gro`: the folder it's in is the one.
-5. Copy them into the Files app's **On My iPhone > Sam SE**, **directly** into that folder (not inside another folder, and not as a `.zip`), with their names unchanged. Use whatever way you like to get files into the Files app, for example iCloud Drive: copy them into iCloud Drive on your computer, then move them into Sam SE in the Files app. `SE1_10b.gro`, `ModEXT.txt` and two `.log` files are already there: the app makes them itself, so leave them.
-6. **Open Sam SE again.** If the intro plays, tap to get to the main menu.
+   You don't need `Bin` or any of the other folders. Not sure where the game is installed? Search your computer for `1_00_music.gro` (The First Encounter) or `SE1_00_Levels.gro` (The Second Encounter): the folder it's in is the one.
+5. Copy them into the Files app's **On My iPhone > Sam FE** or **On My iPhone > Sam SE**, the app for that game, **directly** into that folder (the `.gro` files and the folders as they are: not inside another folder, and not as a `.zip`), with their names unchanged. Use whatever way you like to get files into the Files app, for example iCloud Drive: copy them into iCloud Drive on your computer, then move them into the app's folder in the Files app. `SE1_10b.gro` (an engine file both apps add, not a Second Encounter file), `ModEXT.txt` and two `.log` files are already there: the app makes them itself, so leave them.
+6. **Open the app again.** If the intro plays, tap to get to the main menu.
 
-**If the game files are missing:** if Sam SE can't find `SE1_00_Levels.gro` directly in its folder, it shows the *Fatal Error* box, *Game data not found*, naming the missing file, and closes when you tap OK. Check that the files are directly in *On My iPhone > Sam SE*, not in a folder inside it and not zipped, with their names unchanged, then open the app again. The app checks only for that one file, so also make sure all eight `.gro` files from step 4 are there.
+**If the game files are missing:** each app checks for one file directly in its folder: Sam FE for `1_00_music.gro`, Sam SE for `SE1_00_Levels.gro`. If it can't find it, it shows the *Fatal Error* box, *Game data not found*, naming the missing file, and closes when you tap OK. Check that the files are directly in the app's folder, *On My iPhone > Sam FE* or *Sam SE*, not in a folder inside it and not zipped, with their names unchanged, then open the app again. Each app takes only its own game: The Second Encounter's files won't start Sam FE, and The First Encounter's won't start Sam SE. The app checks only for that one file, so also make sure everything from step 4 is there.
 
-**Your saves** are in the Files app, in *On My iPhone > Sam SE > SaveGame > Player0*, with quick saves in its `Quick` folder. Your player profile is in *Sam SE > Players*.
+**If Sam FE starts but no intro plays,** and choosing a difficulty under *NEW GAME* leaves you in the menu (for a few seconds, *Cannot start game* and a *Cannot open file* line naming `Levels/01_Hatshepsut.wld` show at the top of the screen), the `Levels` folder is missing: copy it into Sam FE too.
 
-- **Back up** now and then by copying `SaveGame` and `Players` somewhere safe (for example iCloud Drive), and always before you delete or reinstall the app: deleting the app deletes its folder, game files and saves included.
-- The SENS, GYRO and FPS settings are kept by iOS, not in the Sam SE folder.
-- **If something goes wrong:** `SeriousSam.log` and `Output.log`, directly in *Sam SE* (next to the `.gro` files), say what the game was doing. Copy them out before you open the app again, because each start empties them. **Found a bug?** Report it at https://github.com/sithewok13-dev/SeriousSamClassic/issues with both log files attached, and say which iPhone and iOS version you have and what you were doing. It's an iOS build of its own, so please report its problems there, not to the upstream SeriousSamClassic project.
+**Your saves** are in the Files app, in the app's own folder: *On My iPhone > Sam FE* or *Sam SE*, then *SaveGame > Player0*, with quick saves in its `Quick` folder. Your player profile is in the app's *Players* folder. As two separate apps, Sam FE and Sam SE each keep their own files, saves and settings.
 
-**Download:** `serioussamse-ios.ipa`, under *Assets* below. It's The Second Encounter; this release has no First Encounter file. The *iOS latest build* prerelease, also on the Releases page, is rebuilt automatically after every code change, before anyone has tried it, and its First Encounter file has never been played: use this release.
+- **Back up** now and then by copying `SaveGame` and `Players` somewhere safe (for example iCloud Drive), and always before you delete or reinstall an app: deleting an app deletes its folder, game files and saves included.
+- The SENS, GYRO and FPS settings are kept by iOS, not in the app's folder.
+- **If something goes wrong:** `SeriousSam.log` and `Output.log`, directly in the app's folder (next to the `.gro` files), say what the game was doing. Copy them out before you open the app again, because each start empties them. **Found a bug?** Report it at https://github.com/sithewok13-dev/SeriousSamClassic/issues with both log files attached, and say which game, which iPhone and iOS version you have and what you were doing. It's an iOS build of its own, so please report its problems there, not to the upstream SeriousSamClassic project.
+
+**Download:** under *Assets* below: `serioussam-ios.ipa` is The First Encounter (Sam FE), and `serioussamse-ios.ipa` is The Second Encounter (Sam SE). The *iOS latest build* prerelease, also on the Releases page, is rebuilt automatically after every code change, before anyone has tried it: use this release.
 
 ---
 
-Unofficial build. Serious Sam: The Second Encounter and Serious Engine 1 are by Croteam, who released the engine's source code (Serious Engine 1.10) under the GNU GPL v2. This build is based on [tx00100xt/SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic). It is not an official Croteam release, and it is not affiliated with or endorsed by Croteam or Devolver Digital. No game files are included.
+Unofficial builds. Serious Sam: The First Encounter, Serious Sam: The Second Encounter and Serious Engine 1 are by Croteam, who released the engine's source code (Serious Engine 1.10) under the GNU GPL v2. These builds are based on [tx00100xt/SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic). They are not an official Croteam release, and they are not affiliated with or endorsed by Croteam or Devolver Digital. No game files are included.
 
-This app is free software under the GNU GPL v2 (https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/LICENSE). Its source code, iOS changes included, is the `ios` branch: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios (this release is the tag `ios-v0.1`: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios-v0.1).
+These apps are free software under the GNU GPL v2 (https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/LICENSE). Their source code, iOS changes included, is the `ios` branch: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios (this release is the tag `ios-v0.2`: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios-v0.2).
 
-The app also includes libraries under their own licences: SDL2 (zlib licence, https://github.com/libsdl-org/SDL/blob/release-2.30.8/LICENSE.txt), gl4es (MIT licence, https://github.com/ptitSeb/gl4es/blob/ec16bedd8819c475326f4f1a3063772c6d986e06/LICENSE), which turns the engine's OpenGL into the iPhone's OpenGL ES, and libogg and libvorbis by the Xiph.Org Foundation (BSD-style licence, https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libvorbis/COPYING and https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libogg/COPYING), which decode the music.
+The apps also include libraries under their own licences: SDL2 (zlib licence, https://github.com/libsdl-org/SDL/blob/release-2.30.8/LICENSE.txt), gl4es (MIT licence, https://github.com/ptitSeb/gl4es/blob/ec16bedd8819c475326f4f1a3063772c6d986e06/LICENSE), which turns the engine's OpenGL into the iPhone's OpenGL ES, and libogg and libvorbis by the Xiph.Org Foundation (BSD-style licence, https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libvorbis/COPYING and https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libogg/COPYING), which decode the music.
 
 <details>
 <summary>Licence notices</summary>

@@ -42,13 +42,14 @@ env:
   GL4ES_SHA: ec16bedd8819c475326f4f1a3063772c6d986e06
   # The tag a manual run was asked to release; empty for pushes and ordinary runs.
   RELEASE_TAG: ${{ inputs.release }}
-  # The .ipa files a release gets, space-separated. For now The Second Encounter
-  # only; add serioussam-ios.ipa (The First Encounter) to release both, and
-  # change RELEASE_TITLE to match. Every run still builds both games, and
-  # ios-latest still gets both.
-  RELEASE_IPAS: serioussamse-ios.ipa
-  # Release title; the tag's version is added after it (ios-v0.1 -> "... v0.1").
-  RELEASE_TITLE: "Serious Sam: The Second Encounter for iOS"
+  # The .ipa files a release gets, space-separated: since ios-v0.2 both games
+  # (serioussamse-ios.ipa is The Second Encounter, serioussam-ios.ipa The First
+  # Encounter; ios-v0.1 had The Second Encounter only). To release one game
+  # only, leave the other out and change RELEASE_TITLE to match. Every run
+  # still builds both games, and ios-latest still gets both.
+  RELEASE_IPAS: serioussamse-ios.ipa serioussam-ios.ipa
+  # Release title; the tag's version is added after it (ios-v0.2 -> "... v0.2").
+  RELEASE_TITLE: "Serious Sam Classic for iOS"
 
 # Read-only by default; only the release job, which publishes, can write.
 permissions:
@@ -206,7 +207,7 @@ jobs:
         prerelease: true
         make_latest: false
         body: |
-          Development builds, rebuilt after every push to the `ios` branch (run ${{ github.run_number }}, commit ${{ github.sha }}). They may not have been tried yet, and the First Encounter build has never been played. For the tested release and how to install it, see ${{ github.server_url }}/${{ github.repository }}/releases/latest
+          Development builds, rebuilt after every push to the `ios` branch (run ${{ github.run_number }}, commit ${{ github.sha }}). They may not have been tried yet. For the latest release and how to install it, see ${{ github.server_url }}/${{ github.repository }}/releases/latest
           serioussam-ios.ipa = The First Encounter, serioussamse-ios.ipa = The Second Encounter.
           Sideload one, then copy your own game data into Files > On My iPhone > Sam FE / Sam SE.
         files: out/*.ipa
