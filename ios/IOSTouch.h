@@ -93,14 +93,22 @@
        fills (0.45 s), it opens a small tray just under it instead: SENS
        (tilt aiming's sensitivity: 1.0x, 1.5x, 2.0x, 3.0x; 1.5x to begin
        with), GYRO (tilt aiming: OFF, TOUCH, ALWAYS; lit while on), FPS
-       (shows or hides a frame rate readout by QUICK SAVE) and the keyboard
-       (opens the console with the iOS keyboard, for cheats; tapping it
-       again closes both); all but the keyboard are remembered across
-       launches. Slide the held thumb onto one, or lift and tap it; GYRO
-       and SENS go on to the next setting and leave the tray open for
-       another tap, FPS and the keyboard close it, and so does a touch
-       anywhere else. While it is open the FPS readout hides where the tray
-       lies over it.
+       (shows or hides a frame rate readout by QUICK SAVE), CAMERA (shows
+       or hides CAMERA; held, its options open in a row under the tray) and
+       the keyboard (opens the console with the iOS keyboard, for cheats;
+       tapping it again closes both); all but the keyboard are remembered
+       across launches. Slide the held thumb onto one, or lift and tap it;
+       GYRO and SENS go on to the next setting and leave the tray open for
+       another tap, FPS, CAMERA and the keyboard close it, and so does a
+       touch anywhere else. While it is open the FPS readout hides where
+       the tray lies over it.
+     - CAMERA, in the top row: a tap takes a photo of the game (of each
+       kind ticked in its options: clean, with the HUD, with the HUD and
+       the buttons), held still 0.5 s a selfie, slid sideways a burst for as
+       long as the finger stays down, slid down Action Freeze and slid up
+       the cinematic burst (see IOSCapture.h, IOSSelfie.h, IOSFreeze.h,
+       IOSCinema.h). The game holds still through a selfie, Action Freeze
+       and the cinematic burst, and while iOS asks for Photos access.
    Buttons act on the player directly, not through key bindings, so they
    work whatever keys are bound. While the game is paused (e.g. after the app
    was in the background) only RESUME and MENU show; while the console is

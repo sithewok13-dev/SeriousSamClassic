@@ -29,6 +29,13 @@ target_include_directories(${SE_EXE} PRIVATE ${SDL2_INCLUDE_DIR})
 enable_language(OBJC)
 target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSTouch.m)
 set_source_files_properties(${SE_IOS_DIR}/IOSTouch.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-fno-ms-extensions")
+# CAMERA: the frame grabs, saving to Photos and the selfie's shots (with the
+# overlay), and the photo views, selfies, Action Freeze and the cinematic
+# burst (in the game library: they work on the game's entities)
+target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSCapture.c ${SE_IOS_DIR}/IOSPhotos.m ${SE_IOS_DIR}/IOSSelfieShots.c)
+set_source_files_properties(${SE_IOS_DIR}/IOSPhotos.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-fno-ms-extensions")
+target_sources(${GAMEMPLIB} PRIVATE ${SE_IOS_DIR}/IOSPhotoCam.cpp ${SE_IOS_DIR}/IOSSelfie.cpp ${SE_IOS_DIR}/IOSStance.cpp
+               ${SE_IOS_DIR}/IOSFreeze.cpp ${SE_IOS_DIR}/IOSCinema.cpp)
 foreach(_target ${ENGINELIB} ${GAMEMPLIB} ${ENTITIESMPLIB} ${SE_EXE})
   target_include_directories(${_target} PRIVATE ${SE_IOS_DIR})
 endforeach()
@@ -59,6 +66,8 @@ target_link_libraries(${SE_EXE}
   "-framework CoreMotion"
   "-framework CoreAudio"
   "-framework AudioToolbox"
+  "-framework Photos"
+  "-framework ImageIO"
   "-framework AVFoundation"
   "-framework GameController"
   "-framework Metal"

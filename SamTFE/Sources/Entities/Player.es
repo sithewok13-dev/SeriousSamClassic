@@ -272,6 +272,13 @@ static void KillAllEnemies(CEntity *penKiller)
 #define STR_READ_MESSAGE_HINT "Press USE to read the message!"
 #define READ_MESSAGE_HINT_AND
 #endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// the touch controls' CAMERA takes its clean photo here (ios/IOSCapture.c)
+extern "C" void IOSCapture_AfterScene(void);
+#define IOS_CAPTURE_AFTER_SCENE() IOSCapture_AfterScene()
+#else
+#define IOS_CAPTURE_AFTER_SCENE()
+#endif
                                      
 #define MAX_WEAPONS 30
 
@@ -4256,6 +4263,9 @@ functions:
       ((CPlayerWeapons&)*m_penWeapons).RenderWeaponModel(prProjection, pdp, 
        vViewerLightDirection, colViewerLight, colViewerAmbient, bRenderWeapon);
     }
+
+    // (the touch controls' CAMERA: its clean photo, the view and the weapon but no crosshair or HUD)
+    IOS_CAPTURE_AFTER_SCENE();
 
     // render crosshair
     CPlacement3D plView;

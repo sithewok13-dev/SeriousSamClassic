@@ -18,6 +18,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "StdAfx.h"
 #include "GameMP/Game.h"
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSPhotoCam.h"
+#endif
 #ifndef PLATFORM_FREEBSD
 #include <sys/timeb.h>
 #endif
@@ -2754,6 +2757,11 @@ void CGame::GameRedrawView( CDrawPort *pdpDrawPort, ULONG ulFlags)
 
     // for each view
     BOOL bHadViewers = FALSE;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (the touch controls' CAMERA's view: no HUD, no messages over it)
+    const BOOL bIOSPhotoView = IOSPhotoCam_IsActive();
+    if (bIOSPhotoView) ulFlags &= ~GRV_SHOWEXTRAS;
+#endif
     {for (INDEX i=0; i<ctViewers; i++) {
       CDrawPort *pdp = apdpDrawPorts[i];
       if (pdp!=NULL && pdp->Lock()) {
@@ -2767,6 +2775,11 @@ void CGame::GameRedrawView( CDrawPort *pdpDrawPort, ULONG ulFlags)
             apenViewers[i] = apenViewers[i]->GetPredictor();
           }
 
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+          if (bIOSPhotoView && IOSPhotoCam_Render(apenViewers[i], pdp)) {
+            // drawn from CAMERA's camera (a selfie, Action Freeze)
+          } else
+#endif
           if (!CAM_IsOn()) {
             _bPlayerViewRendered = TRUE;
             // render it
@@ -3179,6 +3192,12 @@ CTFileName CGame::GetQuickSaveName(BOOL bSave)
 
 void CGame::GameMainLoop(void)
 {
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  if (IOSPhotoCam_IsActive()) {
+    gam_bQuickSave = FALSE;
+    gam_bQuickLoad = FALSE;
+  }
+#endif
   if (gam_bQuickSave && GetSP()->sp_gmGameMode!=CSessionProperties::GM_FLYOVER) {
     if (gam_bQuickSave==2) {
       _tvMenuQuickSave = _pTimer->GetHighPrecisionTimer();

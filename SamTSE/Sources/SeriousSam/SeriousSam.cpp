@@ -36,6 +36,9 @@ extern "C" int IOS_IsInBackground(void);
 extern "C" void IOS_WaitForForeground(void);
 #include "IOSTouch.h"
 #endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCapture.h"
+#endif
 #include <sys/stat.h>
 #include <Engine/CurrentVersion.h>
 #include <GameMP/Game.h>
@@ -1137,6 +1140,10 @@ void DoGame(void)
   // redraw the view
   if( !IsIconic(_hwndMain) && pdp!=NULL && pdp->Lock())
   {
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // the touch controls' CAMERA reads back this frame (IOSCapture.c)
+    IOSCapture_FrameBegin(pdp->dp_Raster->ra_Width, pdp->dp_Raster->ra_Height);
+#endif
     if( _gmRunningGameMode!=GM_NONE && !bMenuActive ) {
       // handle pretouching of textures and shadowmaps
       pdp->Unlock();
@@ -1181,6 +1188,9 @@ void DoGame(void)
       pdpNormal->Fill( 0, pixJOfs, pixWidth, pixHeight, C_BLACK|CT_OPAQUE);
       pdpNormal->Unlock();
     }
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    IOSCapture_AfterHud();  // (CAMERA's photo with the HUD)
+#endif
     // show
     pvpViewPort->SwapBuffers();
   }

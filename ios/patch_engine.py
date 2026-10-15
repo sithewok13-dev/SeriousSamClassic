@@ -1571,4 +1571,114 @@ extern "C" int IOS_GetWeaponIcon(int iWeapon, unsigned char *pubRGBA, int ctMaxB
 #endif
 """, "|| IOSTouch_HoldsGame());  // the touch controls' weapon wheel is open")
 
+    # ------------------------------------------------------------ CAMERA
+    # The touch controls' CAMERA (ios/IOSCapture.c) reads back the frame at
+    # two points: once the view and the first-person weapon are drawn, before
+    # the crosshair and the HUD (the clean photo), and once all of it is,
+    # before the swap (the HUD one). Also built by the Linux test rig
+    # (IOS_CAMERA_RIG), which drives the same code.
+    p = src / "Engine/Graphics/DrawPort.cpp"
+    sub(p, "void CDrawPort::GrabScreen( class CImageInfo &iiGrabbedImage, INDEX iGrabZBuffer/*=0*/) const\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// The touch controls' CAMERA: the w x h frame drawn so far, as RGBA (the
+// bottom row first). 1 if it could.
+extern "C" int IOS_ReadFrameRGBA(int w, int h, unsigned char *p)
+{
+  if (_pGfx->gl_eCurrentAPI!=GAT_OGL || w<=0 || h<=0) return 0;
+  while (pglGetError()!=GL_NO_ERROR) {}  // (not ours)
+  pglPixelStorei(GL_PACK_ALIGNMENT, 4);
+  pglReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, (GLvoid*)p);
+  return pglGetError()==GL_NO_ERROR;
+}
+#endif
+
+void CDrawPort::GrabScreen( class CImageInfo &iiGrabbedImage, INDEX iGrabZBuffer/*=0*/) const
+""", "IOS_ReadFrameRGBA")
+
+    # (ECC takes no preprocessor lines in function bodies: a macro)
+    p = src / ("EntitiesMP/Player.es" if game == "SamTSE" else "Entities/Player.es")
+    sub(p, "#define STR_READ_MESSAGE_HINT \"Press USE to read the message!\"\n#define READ_MESSAGE_HINT_AND\n#endif\n",
+"""#define STR_READ_MESSAGE_HINT "Press USE to read the message!"
+#define READ_MESSAGE_HINT_AND
+#endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// the touch controls' CAMERA takes its clean photo here (ios/IOSCapture.c)
+extern "C" void IOSCapture_AfterScene(void);
+#define IOS_CAPTURE_AFTER_SCENE() IOSCapture_AfterScene()
+#else
+#define IOS_CAPTURE_AFTER_SCENE()
+#endif
+""", "IOS_CAPTURE_AFTER_SCENE() IOSCapture_AfterScene()")
+    sub(p, "    // render crosshair",
+"""    // (the touch controls' CAMERA: its clean photo, the view and the weapon but no crosshair or HUD)
+    IOS_CAPTURE_AFTER_SCENE();
+
+    // render crosshair""", "    IOS_CAPTURE_AFTER_SCENE();\n")
+
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, "#include <sys/stat.h>\n#include <Engine/CurrentVersion.h>\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCapture.h"
+#endif
+#include <sys/stat.h>
+#include <Engine/CurrentVersion.h>
+""", '#include "IOSCapture.h"')
+    sub(p, "  // redraw the view\n  if( !IsIconic(_hwndMain) && pdp!=NULL && pdp->Lock())\n  {\n",
+"""  // redraw the view
+  if( !IsIconic(_hwndMain) && pdp!=NULL && pdp->Lock())
+  {
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // the touch controls' CAMERA reads back this frame (IOSCapture.c)
+    IOSCapture_FrameBegin(pdp->dp_Raster->ra_Width, pdp->dp_Raster->ra_Height);
+#endif
+""", "IOSCapture_FrameBegin(")
+    sub(p, "    // show\n    pvpViewPort->SwapBuffers();\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    IOSCapture_AfterHud();  // (CAMERA's photo with the HUD)
+#endif
+    // show
+    pvpViewPort->SwapBuffers();
+""", "IOSCapture_AfterHud();")
+
+    # CAMERA's own view (ios/IOSPhotoCam.cpp): a selfie, Action Freeze and the
+    # cinematic burst draw the game from a camera of their own, with no HUD
+    # and nothing else over it
+    p = src / "GameMP/Game.cpp"
+    sub(p, '#include "GameMP/Game.h"\n',
+"""#include "GameMP/Game.h"
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSPhotoCam.h"
+#endif
+""", '#include "IOSPhotoCam.h"')
+    sub(p, "    BOOL bHadViewers = FALSE;\n",
+"""    BOOL bHadViewers = FALSE;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (the touch controls' CAMERA's view: no HUD, no messages over it)
+    const BOOL bIOSPhotoView = IOSPhotoCam_IsActive();
+    if (bIOSPhotoView) ulFlags &= ~GRV_SHOWEXTRAS;
+#endif
+""", "const BOOL bIOSPhotoView = IOSPhotoCam_IsActive();")
+    sub(p, "          if (!CAM_IsOn()) {\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+          if (bIOSPhotoView && IOSPhotoCam_Render(apenViewers[i], pdp)) {
+            // drawn from CAMERA's camera (a selfie, Action Freeze)
+          } else
+#endif
+          if (!CAM_IsOn()) {
+""", "IOSPhotoCam_Render(apenViewers[i], pdp)")
+
+    # (a quick save or load from a keyboard's F6/F9 while CAMERA holds the
+    # game: ignored, so no posed or frozen view is ever saved, and nothing it
+    # still points at is cleared away under it)
+    sub(p, "void CGame::GameMainLoop(void)\n{\n",
+"""void CGame::GameMainLoop(void)
+{
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  if (IOSPhotoCam_IsActive()) {
+    gam_bQuickSave = FALSE;
+    gam_bQuickLoad = FALSE;
+  }
+#endif
+""", "  if (IOSPhotoCam_IsActive()) {\n    gam_bQuickSave = FALSE;")
+
     print(game, "patched")

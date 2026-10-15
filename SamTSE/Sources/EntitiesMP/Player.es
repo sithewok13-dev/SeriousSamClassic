@@ -296,6 +296,13 @@ static void KillAllEnemies(CEntity *penKiller)
 #define STR_READ_MESSAGE_HINT "Press USE to read the message!"
 #define READ_MESSAGE_HINT_AND
 #endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// the touch controls' CAMERA takes its clean photo here (ios/IOSCapture.c)
+extern "C" void IOSCapture_AfterScene(void);
+#define IOS_CAPTURE_AFTER_SCENE() IOSCapture_AfterScene()
+#else
+#define IOS_CAPTURE_AFTER_SCENE()
+#endif
 #ifdef PLATFORM_IOS
 // With PLACT_USE from the touch controls' USE (GameMP/Game.cpp): that use never
 // works the sniper scope (their ZOOM button does).
@@ -4947,6 +4954,9 @@ functions:
       RenderChainsawParticles(FALSE);
       Particle_EndSystem();
     }
+
+    // (the touch controls' CAMERA: its clean photo, the view and the weapon but no crosshair or HUD)
+    IOS_CAPTURE_AFTER_SCENE();
 
     // render crosshair if sniper zoom not active
     CPlacement3D plView;

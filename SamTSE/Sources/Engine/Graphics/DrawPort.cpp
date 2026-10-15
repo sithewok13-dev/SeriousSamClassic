@@ -934,6 +934,19 @@ void CDrawPort::FillZBuffer( FLOAT zval) const
 
 
 // grab screen
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// The touch controls' CAMERA: the w x h frame drawn so far, as RGBA (the
+// bottom row first). 1 if it could.
+extern "C" int IOS_ReadFrameRGBA(int w, int h, unsigned char *p)
+{
+  if (_pGfx->gl_eCurrentAPI!=GAT_OGL || w<=0 || h<=0) return 0;
+  while (pglGetError()!=GL_NO_ERROR) {}  // (not ours)
+  pglPixelStorei(GL_PACK_ALIGNMENT, 4);
+  pglReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, (GLvoid*)p);
+  return pglGetError()==GL_NO_ERROR;
+}
+#endif
+
 void CDrawPort::GrabScreen( class CImageInfo &iiGrabbedImage, INDEX iGrabZBuffer/*=0*/) const
 {
   // check API

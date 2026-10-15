@@ -9,6 +9,10 @@ reads everything on a phone.
 - **iOS code** is in `ios/`. `IOSTouch.m` / `IOSTouch.h` are the overlay (a C core
   plus a UIKit view). `patch_engine.py` holds every game-side change as idempotent
   anchored hunks: re-run it and commit the patched sources with it.
+  CAMERA (photos, bursts, selfies, Action Freeze, the cinematic burst; ported from
+  the Jedi Knight port) is `IOSCapture.c`, `IOSPhotos.m`, `IOSSelfieShots.c` (with
+  the overlay) and `IOSPhotoCam`, `IOSSelfie`, `IOSStance`, `IOSFreeze`, `IOSCinema`
+  (`.cpp`, in the game library).
   `ios_app.cmake` sets names, bundle ids and icons. `RELEASE_NOTES.md` is the
   release text and full player guide.
 - **CI:** `.github/workflows/ios.yml` (`RELEASE_IPAS`, `RELEASE_TITLE`).
@@ -48,7 +52,13 @@ reads everything on a phone.
   - Move stick where the left thumb lands; drag elsewhere to look.
   - QUICK SAVE / QUICK LOAD: a 0.3 s hold with a ring. Sliding off cancels; QUICK
     SAVE wins a tie.
-  - MENU: tap = game menu; hold 0.45 s = tray with SENS, GYRO, FPS, keyboard.
+  - MENU: tap = game menu; hold 0.45 s = tray with SENS, GYRO, FPS, CAMERA, keyboard.
+  - CAMERA (top row): tap = photo, hold 0.5 s = selfie (1/3/5 photos; up to 48 nearest
+    enemies posed in frames of their own animations, `IOSSELFIE_MAX_PEOPLE`), slide
+    sideways = burst, slide down = Action Freeze, slide up = cinematic burst. The tray's
+    CAMERA shows/hides it; held, its options (PHOTO kinds, SELFIES, FREEZE). Photos go
+    to Photos (add-only), else Files > Screenshots. A selfie, freeze or burst changes
+    nothing in the game: everything is put back exactly.
   - GYRO: OFF (default) / TOUCH (aims while either thumb is down; lifting both
     freezes the view) / ALWAYS. SENS 1.0/1.5/2.0/3.0, default 1.5. Remembered.
   - NEXT WPN / PREV WPN: tap = next/previous; a 10 pt slide opens the weapon wheel at

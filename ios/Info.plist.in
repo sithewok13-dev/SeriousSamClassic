@@ -76,5 +76,10 @@
 	     asking for one -->
 	<key>NSMotionUsageDescription</key>
 	<string>Turning the device aims, while tilt aiming is on (hold MENU to set it).</string>
+	<!-- CAMERA's photos and selfies go into the Photos app (add-only: the
+	     app can't see the photos already there). Without this key iOS ends
+	     the app when it asks. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>CAMERA saves your photos and selfies of the game to your photo library.</string>
 </dict>
 </plist>
