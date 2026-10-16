@@ -1369,6 +1369,24 @@ void StartSelectPlayersMenuFromNetwork(void)
   ChangeToMenu( &gmSelectPlayersMenu);
 }
 
+#ifdef PLATFORM_IOS
+// Connection settings for the server about to be joined (as the presets in
+// Scripts\NetSettings set them): LAN for an address on the local network,
+// fast internet otherwise
+static void IOS_ApplyNetSettings(void)
+{
+  int a = 0, b = 0, c = 0, d = 0;
+  const BOOL bIP = sscanf(_pGame->gam_strJoinAddress, "%d.%d.%d.%d", &a, &b, &c, &d)==4;
+  const BOOL bLocal = bIP && (a==10 || a==127 || (a==192 && b==168) || (a==172 && b>=16 && b<=31) || (a==169 && b==254));
+  if (bLocal) {
+    _pShell->Execute("cli_bPrediction=0; cli_iBufferActions=1; cli_iMinBPS=6000; cli_iMaxBPS=100000;");
+  } else {
+    _pShell->Execute("cli_bPrediction=1; cli_iBufferActions=2; cli_iMinBPS=6000; cli_iMaxBPS=457000;");
+  }
+  CPrintF("Connection settings: %s\n", bLocal ? "local network" : "internet");
+}
+#endif
+
 void StartSelectPlayersMenuFromOpen(void)
 {
   gmSelectPlayersMenu.gm_bAllowDedicated = FALSE;
@@ -1377,6 +1395,10 @@ void StartSelectPlayersMenuFromOpen(void)
   gmSelectPlayersMenu.gm_pgmParentMenu = &gmNetworkOpenMenu;
   ChangeToMenu( &gmSelectPlayersMenu);
 
+#ifdef PLATFORM_IOS
+  // (no connection settings to pick: they suit the server)
+  IOS_ApplyNetSettings();
+#else
   /*if (sam_strNetworkSettings=="")*/ {
     void StartNetworkSettingsMenu(void);
     StartNetworkSettingsMenu();
@@ -1384,6 +1406,7 @@ void StartSelectPlayersMenuFromOpen(void)
     gmLoadSaveMenu.gm_pgmParentMenu = &gmNetworkOpenMenu;
     gmLoadSaveMenu.gm_pgmNextMenu = &gmSelectPlayersMenu;
   }
+#endif
 }
 void StartSelectPlayersMenuFromServers(void)
 {
@@ -1393,6 +1416,10 @@ void StartSelectPlayersMenuFromServers(void)
   gmSelectPlayersMenu.gm_pgmParentMenu = &gmServersMenu;
   ChangeToMenu( &gmSelectPlayersMenu);
 
+#ifdef PLATFORM_IOS
+  // (no connection settings to pick: they suit the server)
+  IOS_ApplyNetSettings();
+#else
   /*if (sam_strNetworkSettings=="")*/ {
     void StartNetworkSettingsMenu(void);
     StartNetworkSettingsMenu();
@@ -1400,6 +1427,7 @@ void StartSelectPlayersMenuFromServers(void)
     gmLoadSaveMenu.gm_pgmParentMenu = &gmServersMenu;
     gmLoadSaveMenu.gm_pgmNextMenu = &gmSelectPlayersMenu;
   }
+#endif
 }
 void StartSelectServerLAN(void)
 {

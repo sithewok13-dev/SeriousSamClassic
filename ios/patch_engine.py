@@ -2260,4 +2260,52 @@ void CMGServerList::OnMouseOver(PIX pixI, PIX pixJ)
   if (pl==NULL || pl->m_penWeapons==NULL) return;
   CPlayerWeapons *penOld = _penWeapons;
 """, "  // (this phone's player: in a network game, player 0 may be someone else's)\n")
+    # Joining asked for connection settings every time (a list of presets
+    # from Scripts\NetSettings, which The Second Encounter's files don't have
+    # at all: an empty list nothing could be picked from). A phone picks them
+    # itself, by where the server is: the LAN preset on the Wi-Fi, the
+    # fast-internet one otherwise.
+    p = src / "SeriousSam/Menu.cpp"
+    sub(p, "void StartSelectPlayersMenuFromOpen(void)\n{\n", r"""#ifdef PLATFORM_IOS
+// Connection settings for the server about to be joined (as the presets in
+// Scripts\NetSettings set them): LAN for an address on the local network,
+// fast internet otherwise
+static void IOS_ApplyNetSettings(void)
+{
+  int a = 0, b = 0, c = 0, d = 0;
+  const BOOL bIP = sscanf(_pGame->gam_strJoinAddress, "%d.%d.%d.%d", &a, &b, &c, &d)==4;
+  const BOOL bLocal = bIP && (a==10 || a==127 || (a==192 && b==168) || (a==172 && b>=16 && b<=31) || (a==169 && b==254));
+  if (bLocal) {
+    _pShell->Execute("cli_bPrediction=0; cli_iBufferActions=1; cli_iMinBPS=6000; cli_iMaxBPS=100000;");
+  } else {
+    _pShell->Execute("cli_bPrediction=1; cli_iBufferActions=2; cli_iMinBPS=6000; cli_iMaxBPS=457000;");
+  }
+  CPrintF("Connection settings: %s\n", bLocal ? "local network" : "internet");
+}
+#endif
+
+void StartSelectPlayersMenuFromOpen(void)
+{
+""", "static void IOS_ApplyNetSettings(void)\n{\n")
+    for parent in ("gmNetworkOpenMenu", "gmServersMenu"):
+        sub(p, """  /*if (sam_strNetworkSettings=="")*/ {
+    void StartNetworkSettingsMenu(void);
+    StartNetworkSettingsMenu();
+    gmLoadSaveMenu.gm_bNoEscape = TRUE;
+    gmLoadSaveMenu.gm_pgmParentMenu = &%s;
+    gmLoadSaveMenu.gm_pgmNextMenu = &gmSelectPlayersMenu;
+  }
+""" % parent, """#ifdef PLATFORM_IOS
+  // (no connection settings to pick: they suit the server)
+  IOS_ApplyNetSettings();
+#else
+  /*if (sam_strNetworkSettings=="")*/ {
+    void StartNetworkSettingsMenu(void);
+    StartNetworkSettingsMenu();
+    gmLoadSaveMenu.gm_bNoEscape = TRUE;
+    gmLoadSaveMenu.gm_pgmParentMenu = &%s;
+    gmLoadSaveMenu.gm_pgmNextMenu = &gmSelectPlayersMenu;
+  }
+#endif
+""" % parent, "    gmLoadSaveMenu.gm_pgmParentMenu = &%s;\n    gmLoadSaveMenu.gm_pgmNextMenu = &gmSelectPlayersMenu;\n  }\n#endif\n" % parent)
     print(game, "patched")
