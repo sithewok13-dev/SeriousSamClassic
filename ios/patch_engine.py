@@ -2308,4 +2308,411 @@ void StartSelectPlayersMenuFromOpen(void)
   }
 #endif
 """ % parent, "    gmLoadSaveMenu.gm_pgmParentMenu = &%s;\n    gmLoadSaveMenu.gm_pgmNextMenu = &gmSelectPlayersMenu;\n  }\n#endif\n" % parent)
+    # ------------------------------------------------ the cheat (sithewok)
+    # The touch controls' cheat lives in the player entity, driven by bits in
+    # the player's own actions (ios/IOSCheat.h): the same in single player and
+    # in a network game, where it only acts on the player who sent them, and
+    # only if the host allows it (ALLOW CHEATS, sp_bIOSAllowCheats).
+    p = src / "GameMP/SessionProperties.h"
+    sub(p, "  BOOL  sp_bUseExtraEnemies;  // spawn extra multiplayer enemies\n};\n",
+"""  BOOL  sp_bUseExtraEnemies;  // spawn extra multiplayer enemies
+
+  BOOL  sp_bIOSAllowCheats;   // (iOS) every player may use the touch controls' cheat on themselves
+};
+""", "  BOOL  sp_bIOSAllowCheats;")
+    p = src / "GameMP/SessionProperties.cpp"
+    sub(p, "void CGame::SetMultiPlayerSession(CSessionProperties &sp)\n{\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+extern INDEX gam_bIOSAllowCheats;
+#endif
+
+void CGame::SetMultiPlayerSession(CSessionProperties &sp)
+{
+""", "extern INDEX gam_bIOSAllowCheats;\n")
+    sub(p, "  sp.sp_bInfiniteAmmo     = gam_bInfiniteAmmo    ;\n",
+"""  sp.sp_bInfiniteAmmo     = gam_bInfiniteAmmo    ;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  sp.sp_bIOSAllowCheats = gam_bIOSAllowCheats;
+#endif
+""", "  sp.sp_bIOSAllowCheats = gam_bIOSAllowCheats;\n")
+    p = src / "GameMP/Game.cpp"
+    sub(p, "INDEX gam_bQuickSave = FALSE;\n",
+"""INDEX gam_bQuickSave = FALSE;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+INDEX gam_bIOSAllowCheats = FALSE;  // (iOS) ALLOW CHEATS, a network game's host setting
+#endif
+""", "INDEX gam_bIOSAllowCheats = FALSE;")
+    sub(p, '  _pShell->DeclareSymbol("user INDEX gam_bQuickSave;", (void *)&gam_bQuickSave);\n',
+"""  _pShell->DeclareSymbol("user INDEX gam_bQuickSave;", (void *)&gam_bQuickSave);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  _pShell->DeclareSymbol("persistent user INDEX gam_bIOSAllowCheats;", (void *)&gam_bIOSAllowCheats);
+#endif
+""", "(void *)&gam_bIOSAllowCheats);\n")
+
+    # every ammo kept full
+    # (in all three copies: CMake copies PlayerWeapons_old.es or HD over it)
+    ammo = ["Bullets", "Shells", "Rockets", "Grenades", "Napalm", "Electricity", "IronBalls", "SniperBullets"] \
+           if game == "SamTSE" else ["Bullets", "Shells", "Rockets", "Grenades", "Electricity", "IronBalls"]
+    fill = "".join("    if (m_i%s<m_iMax%s) { m_i%s = m_iMax%s; }\n" % (a, a, a, a) for a in ammo)
+    for f in ("PlayerWeapons.es", "PlayerWeapons_old.es", "PlayerWeaponsHD.es"):
+        p = src / ("EntitiesMP" if game == "SamTSE" else "Entities") / f
+        if not p.exists():
+            continue
+        sub(p, "  void CheatGiveAll(void) {\n",
+"""  // (the touch controls' cheat) every ammo full, as it runs low
+  void IOSCheatFillAmmo(void) {
+""" + fill + """  };
+
+  void CheatGiveAll(void) {
+""", "  void IOSCheatFillAmmo(void) {\n")
+
+    p = src / ("EntitiesMP/Player.es" if game == "SamTSE" else "Entities/Player.es")
+    sub(p, "#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)\n// the touch controls' CAMERA takes its clean photo here (ios/IOSCapture.c)\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCheat.h"
+#else
+#define IOSCHEAT_PLACT_ON     0
+#define IOSCHEAT_PLACT_FLY    0
+#define IOSCHEAT_PLACT_NOCLIP 0
+#endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// the touch controls' CAMERA takes its clean photo here (ios/IOSCapture.c)
+""", '#include "IOSCheat.h"\n')
+    props_anchor = (" 192 FLOAT m_tmSeriousBombFired = -10.0f,  // when the bomb was last fired\n"
+                    if game == "SamTSE" else " 156 FLOAT3D m_vLocalTranslation = FLOAT3D(0,0,0),\n")
+    sub(p, props_anchor, props_anchor + """
+ // the touch controls' cheat (sithewok, ios/IOSCheat.h): on, flying, through walls, as the last actions said
+ 240 BOOL m_bIOSCheat = FALSE,
+ 241 BOOL m_bIOSFly = FALSE,
+ 242 BOOL m_bIOSNoclip = FALSE,
+ 243 BOOL m_bIOSPhysics = FALSE,          // its flying or noclip set the physics flags
+ 244 CTString m_strIOSCheatWorld = "",    // the level it last gave everything in
+ 245 BOOL m_bIOSWasAlive = FALSE,
+ 246 INDEX m_ctIOSCatches = 0,            // falls caught (the view flashes each time)
+ 247 INDEX m_iIOSSafeNext = 0,            // the last 4 places stood on, every 0.15 s (a ring)
+ 248 INDEX m_ctIOSSafe = 0,
+ 249 FLOAT m_tmIOSSafeLast = -100.0f,
+ 250 FLOAT m_tmIOSFalling = 0.0f,         // how long it has been falling
+ 251 FLOAT3D m_vIOSSafe0 = FLOAT3D(0,0,0),
+ 252 FLOAT3D m_vIOSSafe1 = FLOAT3D(0,0,0),
+ 253 FLOAT3D m_vIOSSafe2 = FLOAT3D(0,0,0),
+ 254 FLOAT3D m_vIOSSafe3 = FLOAT3D(0,0,0),
+ 255 ANGLE3D m_aIOSSafe0 = ANGLE3D(0,0,0),
+ 256 ANGLE3D m_aIOSSafe1 = ANGLE3D(0,0,0),
+ 257 ANGLE3D m_aIOSSafe2 = ANGLE3D(0,0,0),
+ 258 ANGLE3D m_aIOSSafe3 = ANGLE3D(0,0,0),
+""", " 240 BOOL m_bIOSCheat = FALSE,\n")
+    # once a tick, from the player's own actions
+    sub(p, "    CPlayerAction paAction = paOriginal;\n",
+           "    CPlayerAction paAction = paOriginal;\n    // (the touch controls' cheat, from its bits in the actions)\n    IOSCheat_Action(paOriginal.pa_ulButtons);\n",
+           "    IOSCheat_Action(paOriginal.pa_ulButtons);\n")
+    # its flying and noclip, in single player with the game's own cheats,
+    # in a network game on their own
+    sub(p, """    // wanna cheat a bit?
+    if (CheatsEnabled()) {
+      Cheats();
+    }
+""", """    // wanna cheat a bit?
+    if (CheatsEnabled()) {
+      Cheats();
+    } else {
+      IOSCheat_Physics();  // (the touch controls' cheat's flying, where the game's own cheats are off)
+    }
+""", "      IOSCheat_Physics();  // (the touch controls' cheat's flying")
+    sub(p, "    BOOL bFlyOn = cht_bFly || cht_bGhost;\n",
+           "    BOOL bFlyOn = cht_bFly || cht_bGhost || m_bIOSFly || m_bIOSNoclip;\n    m_bIOSPhysics = m_bIOSFly || m_bIOSNoclip;\n",
+           "    BOOL bFlyOn = cht_bFly || cht_bGhost || m_bIOSFly || m_bIOSNoclip;\n")
+    sub(p, """    if (cht_bGhost && !bIsGhost) {
+      SetCollisionFlags(GetCollisionFlags() & ~((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    } else if (!cht_bGhost && bIsGhost) {
+""", """    if ((cht_bGhost || m_bIOSNoclip) && !bIsGhost) {
+      SetCollisionFlags(GetCollisionFlags() & ~((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    } else if (!(cht_bGhost || m_bIOSNoclip) && bIsGhost) {
+""", "    if ((cht_bGhost || m_bIOSNoclip) && !bIsGhost) {\n")
+    # nothing harms it; a fall into the abyss puts the player back
+    sub(p, "    // god mode -> no one can harm you\n    if( cht_bGod && CheatsEnabled() ) { return; }\n",
+"""    // the touch controls' cheat: nothing harms the player, and a fall into
+    // the abyss puts them back where they last stood (if it can: otherwise
+    // the fall goes on as without the cheat)
+    if (m_bIOSCheat) {
+      if (dmtType!=DMT_ABYSS || IOSCheat_CatchFall()) { return; }
+    }
+
+    // god mode -> no one can harm you
+    if( cht_bGod && CheatsEnabled() ) { return; }
+""", "      if (dmtType!=DMT_ABYSS || IOSCheat_CatchFall()) { return; }\n")
+    bombs = "    m_iSeriousBombCount = 3;\n" if game == "SamTSE" else ""
+    sub(p, "  // check if cheats can be active\n  BOOL CheatsEnabled(void)\n", """  // ---- the touch controls' cheat (sithewok, ios/IOSCheat.h) ----
+
+  // whether this player may use it: alone, or in a network game whose host allows it
+  BOOL IOSCheat_Allowed(void)
+  {
+    return GetSP()->sp_ctMaxPlayers==1 || GetSP()->sp_bQuickTest || GetSP()->sp_bIOSAllowCheats;
+  }
+
+  // one of the last places stood on (a ring of 4)
+  FLOAT3D *IOSCheat_SafePos(INDEX i)
+  {
+    // (ECC takes no switch's default: here)
+    if ((i&3)==0) { return &m_vIOSSafe0; }
+    if ((i&3)==1) { return &m_vIOSSafe1; }
+    if ((i&3)==2) { return &m_vIOSSafe2; }
+    return &m_vIOSSafe3;
+  }
+  ANGLE3D *IOSCheat_SafeRot(INDEX i)
+  {
+    if ((i&3)==0) { return &m_aIOSSafe0; }
+    if ((i&3)==1) { return &m_aIOSSafe1; }
+    if ((i&3)==2) { return &m_aIOSSafe2; }
+    return &m_aIOSSafe3;
+  }
+
+  // everything: all weapons and their ammo, full health and armour
+  void IOSCheat_GiveAll(void)
+  {
+    ((CPlayerWeapons&)*m_penWeapons).CheatGiveAll();
+    if (GetHealth()<TopHealth()) { SetHealth(TopHealth()); }
+    if (m_fArmor<TopArmor()) { m_fArmor = TopArmor(); }
+%BOMBS%  }
+
+  // A fall caught: back to the oldest of the last places stood on (about half
+  // a second before the fall), still. FALSE if there is none.
+  BOOL IOSCheat_CatchFall(void)
+  {
+    // (never while the game walks the player: a cutscene could wait for them forever)
+    if (m_ctIOSSafe<=0 || m_penActionMarker!=NULL) { return FALSE; }
+    const INDEX iOldest = (m_iIOSSafeNext-m_ctIOSSafe)&3;
+    CPlacement3D pl(*IOSCheat_SafePos(iOldest), *IOSCheat_SafeRot(iOldest));
+    // (that place is used up: one that drops the player again isn't used twice)
+    m_ctIOSSafe--;
+    Teleport(pl, FALSE);
+    ForceFullStop();
+    m_tmIOSFalling = 0.0f;
+    m_ctIOSCatches++;
+    return TRUE;
+  }
+
+  // Once a tick, from the player's actions (every machine in a network game
+  // runs it alike, from the same actions)
+  void IOSCheat_Action(ULONG ulButtons)
+  {
+    const BOOL bWasOn = m_bIOSCheat;
+    m_bIOSCheat = (ulButtons&IOSCHEAT_PLACT_ON) && IOSCheat_Allowed();
+    // (not while the game walks the player: a cutscene, a level's start)
+    m_bIOSFly = m_bIOSCheat && (ulButtons&IOSCHEAT_PLACT_FLY) && m_penActionMarker==NULL;
+    m_bIOSNoclip = m_bIOSCheat && (ulButtons&IOSCHEAT_PLACT_NOCLIP) && m_penActionMarker==NULL;
+    const BOOL bAlive = (GetFlags()&ENF_ALIVE) ? TRUE : FALSE;
+    const BOOL bWasAlive = m_bIOSWasAlive;
+    m_bIOSWasAlive = bAlive;
+    if (!m_bIOSCheat || !bAlive) {
+      m_tmIOSFalling = 0.0f;
+      return;
+    }
+    // everything given as it comes on, at the start of each level and after
+    // being reborn (the places stood on start over then too)
+    const CTString strWorld = GetWorld()->wo_fnmFileName;
+    if (!bWasOn || !bWasAlive || m_strIOSCheatWorld!=strWorld) {
+      m_strIOSCheatWorld = strWorld;
+      m_ctIOSSafe = 0;
+      IOSCheat_GiveAll();
+    }
+    ((CPlayerWeapons&)*m_penWeapons).IOSCheatFillAmmo();
+    // where it stands, every 0.15 s, for a fall into a pit: only on the
+    // level's own ground (not a lift, a door, a crate or an enemy, which may
+    // have gone by then). Flying or through walls, and after a jump of more
+    // than 4 m between two of them (a teleporter), they start over.
+    const FLOAT tmNow = _pTimer->CurrentTick();
+    if (m_bIOSFly || m_bIOSNoclip) { m_ctIOSSafe = 0; }
+    CEntity *penIOSGround = en_penReference;
+    const BOOL bStanding = penIOSGround!=NULL && !m_bIOSFly && !m_bIOSNoclip;
+    const BOOL bOnGround = bStanding && penIOSGround->en_RenderType==CEntity::RT_BRUSH
+                        && !(penIOSGround->en_ulPhysicsFlags&EPF_MOVABLE);
+    if (bOnGround && tmNow-m_tmIOSSafeLast>=0.15f) {
+      m_tmIOSSafeLast = tmNow;
+      if (m_ctIOSSafe>0 && (GetPlacement().pl_PositionVector-*IOSCheat_SafePos(m_iIOSSafeNext-1)).Length()>4.0f) {
+        m_ctIOSSafe = 0;
+      }
+      *IOSCheat_SafePos(m_iIOSSafeNext) = GetPlacement().pl_PositionVector;
+      *IOSCheat_SafeRot(m_iIOSSafeNext) = GetPlacement().pl_OrientationAngle;
+      m_iIOSSafeNext = (m_iIOSSafeNext+1)&3;
+      m_ctIOSSafe = Min(m_ctIOSSafe+1, INDEX(4));
+    }
+    // falling for 3 s on end (a pit with no bottom that hurts): caught too
+    const FLOAT fDown = en_vCurrentTranslationAbsolute%en_vGravityDir;
+    if (!bStanding && !m_bIOSFly && !m_bIOSNoclip && fDown>5.0f) {
+      m_tmIOSFalling += _pTimer->TickQuantum;
+      if (m_tmIOSFalling>3.0f) {
+        IOSCheat_CatchFall();
+      }
+    } else {
+      m_tmIOSFalling = 0.0f;
+    }
+  }
+
+  // its flying and noclip where the game's own cheats are off (a network
+  // game, a cutscene); in single player Cheats() does it
+  void IOSCheat_Physics(void)
+  {
+    const BOOL bFlyOn = m_bIOSFly || m_bIOSNoclip;
+    if (!bFlyOn && !m_bIOSPhysics) { return; }
+    m_bIOSPhysics = bFlyOn;
+    const BOOL bIsFlying = !(GetPhysicsFlags() & EPF_TRANSLATEDBYGRAVITY);
+    if (bFlyOn && !bIsFlying) {
+      SetPhysicsFlags(GetPhysicsFlags() & ~(EPF_TRANSLATEDBYGRAVITY|EPF_ORIENTEDBYGRAVITY));
+      en_plViewpoint.pl_OrientationAngle = ANGLE3D(0, 0, 0);
+    } else if (!bFlyOn && bIsFlying) {
+      SetPhysicsFlags(GetPhysicsFlags() | EPF_TRANSLATEDBYGRAVITY|EPF_ORIENTEDBYGRAVITY);
+      en_plViewpoint.pl_OrientationAngle = ANGLE3D(0, 0, 0);
+    }
+    const BOOL bIsGhost = !(GetCollisionFlags() & ((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    if (m_bIOSNoclip && !bIsGhost) {
+      SetCollisionFlags(GetCollisionFlags() & ~((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    } else if (!m_bIOSNoclip && bIsGhost) {
+      SetCollisionFlags(GetCollisionFlags() | ((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    }
+  }
+
+  // check if cheats can be active
+  BOOL CheatsEnabled(void)
+""".replace("%BOMBS%", bombs), "  BOOL IOSCheat_Allowed(void)\n")
+    # the cheat's bits in local player 0's actions (Game.cpp), and its word
+    # typed in the console (Console.cpp), both through the app's pointers
+    p = src / "GameMP/Game.cpp"
+    sub(p, "static void IOS_NetCharacter(CPlayerCharacter &pc);\n#endif\n",
+"""static void IOS_NetCharacter(CPlayerCharacter &pc);
+#endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCheat.h"
+// (set by the app: ios/IOSCheat.h)
+unsigned long (*IOSCheat_pfnActionBits)(void) = NULL;
+void (*IOSCheat_pfnTyped)(void) = NULL;
+#endif
+""", "unsigned long (*IOSCheat_pfnActionBits)(void) = NULL;\n")
+    sub(p, "  }\n#endif\n}\n\nCButtonAction &CControls::AddButtonAction(void)\n",
+"""  }
+#endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // the touch controls' cheat (sithewok): on, flying, through walls, for the
+  // first local player
+  if (ctl_iCurrentPlayerLocal==0 && IOSCheat_pfnActionBits!=NULL) {
+    paAction.pa_ulButtons |= (ULONG)IOSCheat_pfnActionBits();
+  }
+#endif
+}
+
+CButtonAction &CControls::AddButtonAction(void)
+""", "    paAction.pa_ulButtons |= (ULONG)IOSCheat_pfnActionBits();\n")
+    p = src / "GameMP/Console.cpp"
+    sub(p, '#include "LCDDrawing.h"\n',
+"""#include "LCDDrawing.h"
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCheat.h"
+#endif
+""", '#include "IOSCheat.h"\n')
+    sub(p, '  // check for cheats\n  #define CHEAT_PREFIX "please"\n',
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // the touch controls' cheat word (sithewok, in any case, with or without a
+  // '/'): it switches the cheat on or off, and isn't sent as a chat line
+  {
+    const char *strIOSWord = strEditingLine;
+    if (strIOSWord[0]=='/') { strIOSWord++; }
+    if (strcasecmp(strIOSWord, IOSCHEAT_WORD)==0) {
+      strEditingLine = "";
+      iCursorPos = 0;
+      if (IOSCheat_pfnTyped!=NULL) { IOSCheat_pfnTyped(); }
+      return;
+    }
+  }
+#endif
+
+  // check for cheats
+  #define CHEAT_PREFIX "please"
+""", "    if (strcasecmp(strIOSWord, IOSCHEAT_WORD)==0) {\n")
+    # The app's part of the cheat: the overlay's bits and the typed word to
+    # the game (IOSCheat.h), what the overlay needs to know, and its
+    # requests (one of Sam's lines, the level picked)
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, '#include "IOSTouch.h"\n#include "IOSNet.h"\n#endif\n',
+           '#include "IOSTouch.h"\n#include "IOSNet.h"\n#include "IOSCheat.h"\n#include "IOSCheatGame.h"\n#endif\n',
+           '#include "IOSCheatGame.h"\n')
+    sub(p, """  hud.bNetwork = (_gmRunningGameMode==GM_NETWORK);
+""", """  hud.bNetwork = (_gmRunningGameMode==GM_NETWORK);
+  // the cheat (sithewok): the overlay drives it (IOSCheat.h)
+  IOSCheat_pfnActionBits = IOSTouch_CheatBits;
+  IOSCheat_pfnTyped = IOSTouch_CheatTyped;
+  hud.bCheatAllowed = IOSCheatGame_Allowed();
+  hud.ctLevels = IOSCheatGame_NumLevels();
+  hud.ctCatches = IOSCheatGame_Catches();
+  hud.uWorld = IOSCheatGame_World();
+""", "  IOSCheat_pfnActionBits = IOSTouch_CheatBits;\n")
+    sub(p, """  if ((iRequests&IOSTOUCH_REQ_READMESSAGES) && iMode==IOSTOUCH_GAMEPLAY) {
+""", """  if (iRequests&IOSTOUCH_REQ_CHEATSOUND) {
+    IOSCheatGame_PlaySound();  // (the cheat came on: one of Sam's lines)
+  }
+  if ((iRequests&IOSTOUCH_REQ_LEVEL) && iMode==IOSTOUCH_GAMEPLAY) {
+    if (!IOSCheatGame_GoToLevel(IOSTouch_TakeLevelPick())) {  // (the cheat's level picker)
+      IOSTouch_CheatLevelFailed();
+    }
+  }
+  if ((iRequests&IOSTOUCH_REQ_READMESSAGES) && iMode==IOSTOUCH_GAMEPLAY) {
+""", "IOSCheatGame_GoToLevel(IOSTouch_TakeLevelPick())) {")
+    # ALLOW CHEATS on START SERVER: whether every player may use the cheat
+    # on themselves in the game hosted (gam_bIOSAllowCheats; off unless set)
+    p = src / "SeriousSam/Menu.cpp"
+    sub(p, "CMGTrigger mgNetworkVisible;\n", """CMGTrigger mgNetworkVisible;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+CMGTrigger mgNetworkAllowCheats;
+#endif
+""", "CMGTrigger mgNetworkAllowCheats;\n")
+    sub(p, """  mgNetworkGameOptions.mg_pmgUp = &mgNetworkVisible;
+  mgNetworkGameOptions.mg_pmgDown = &mgNetworkStartStart;
+""", """  mgNetworkGameOptions.mg_pmgUp = &mgNetworkVisible;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  mgNetworkGameOptions.mg_pmgDown = &mgNetworkAllowCheats;
+#else
+  mgNetworkGameOptions.mg_pmgDown = &mgNetworkStartStart;
+#endif
+""", "  mgNetworkGameOptions.mg_pmgDown = &mgNetworkAllowCheats;\n")
+    sub(p, """  // start button
+  mgNetworkStartStart.mg_bfsFontSize = BFS_LARGE;
+  mgNetworkStartStart.mg_boxOnScreen = BoxBigRow(7, _fGlobalButtonAdjuster);
+  mgNetworkStartStart.mg_pmgUp = &mgNetworkGameOptions;
+""", """#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // (iOS) the touch controls' cheat for every player, on themselves
+  TRIGGER_MG(mgNetworkAllowCheats, 9,
+       mgNetworkGameOptions, mgNetworkStartStart, TRANS("Allow cheats:"), astrNoYes);
+  mgNetworkAllowCheats.mg_strTip = TRANS("if on, every player can use the cheat (sithewok) on themselves");
+#endif
+
+  // start button
+  mgNetworkStartStart.mg_bfsFontSize = BFS_LARGE;
+  mgNetworkStartStart.mg_boxOnScreen = BoxBigRow(7, _fGlobalButtonAdjuster);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  mgNetworkStartStart.mg_pmgUp = &mgNetworkAllowCheats;
+#else
+  mgNetworkStartStart.mg_pmgUp = &mgNetworkGameOptions;
+#endif
+""", "  mgNetworkStartStart.mg_pmgUp = &mgNetworkAllowCheats;\n")
+    sub(p, "  mgNetworkVisible.ApplyCurrentSelection();\n", """  mgNetworkVisible.ApplyCurrentSelection();
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  mgNetworkAllowCheats.mg_iSelected = Clamp(_pShell->GetINDEX("gam_bIOSAllowCheats"), (INDEX)0, (INDEX)1);
+  mgNetworkAllowCheats.ApplyCurrentSelection();
+#endif
+""", '  mgNetworkAllowCheats.mg_iSelected = Clamp(_pShell->GetINDEX("gam_bIOSAllowCheats"), (INDEX)0, (INDEX)1);\n')
+    sub(p, '  _pShell->SetINDEX("ser_bEnumeration", mgNetworkVisible.mg_iSelected);\n', """  _pShell->SetINDEX("ser_bEnumeration", mgNetworkVisible.mg_iSelected);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  _pShell->SetINDEX("gam_bIOSAllowCheats", mgNetworkAllowCheats.mg_iSelected);
+#endif
+""", '  _pShell->SetINDEX("gam_bIOSAllowCheats", mgNetworkAllowCheats.mg_iSelected);\n')
+    # (a network game goes on behind the menu, the console or NETRICSA,
+    # where the player's buttons are let go of: the cheat stays on)
+    p = src / "GameMP/Game.cpp"
+    sub(p, "        paClearAction.pa_ulButtons     = 0;\n", """        paClearAction.pa_ulButtons     = 0;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+        // (but not the touch controls' cheat: in a network game the game goes on)
+        if (iPlayer==0 && IOSCheat_pfnActionBits!=NULL) {
+          paClearAction.pa_ulButtons = (ULONG)IOSCheat_pfnActionBits();
+        }
+#endif
+""", "          paClearAction.pa_ulButtons = (ULONG)IOSCheat_pfnActionBits();\n")
     print(game, "patched")

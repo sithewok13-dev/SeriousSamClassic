@@ -168,6 +168,11 @@ typedef struct IOSTouchHud {
   int ctBombs;      /* serious bombs (Second Encounter) */
   int bNetwork;     /* a network game (from the main loop, not the HUD): selfies and Action Freeze don't work */
   int bNoSaves;     /* no QUICK SAVE / QUICK LOAD: a network game, unless hosting a cooperative one */
+  /* the cheat (sithewok, from the main loop): */
+  int bCheatAllowed;          /* this game lets this phone's player cheat (alone, or the host allows it) */
+  int ctLevels;               /* the level picker's levels (0: none, a network game) */
+  unsigned int ctCatches;     /* falls caught so far (a soft flash each time it goes up) */
+  unsigned int uWorld;        /* changes with every level started or loaded */
 } IOSTouchHud;
 
 /* What the player asked for, carried out by the main loop (IOSTouch_Update's result) */
@@ -178,6 +183,8 @@ enum {
   IOSTOUCH_REQ_QUICKLOAD = 1 << 3,
   IOSTOUCH_REQ_RESUME    = 1 << 4, /* unpause */
   IOSTOUCH_REQ_READMESSAGES = 1 << 5, /* mark every NETRICSA message read (a tap on the unread messages box) */
+  IOSTOUCH_REQ_CHEATSOUND = 1 << 6, /* the cheat came on from the tray or the typed word: one of Sam's lines */
+  IOSTOUCH_REQ_LEVEL     = 1 << 7, /* the cheat's level picker: go to IOSTouch_TakeLevelPick() */
 };
 
 /* Buttons as the game reads them once per tick (IOSTouchInput.ulButtons) */
@@ -258,6 +265,14 @@ void IOSTouch_SetWeaponIcon(int iWeapon, const unsigned char *pubRGBA, int iWidt
 /* Main thread: whether the weapon wheel is open in a game being played: the
    game holds still (the local pause), draws no "Paused" and no HUD weapon row */
 int IOSTouch_HoldsGame(void);
+/* The cheat (sithewok, IOSCheat.h): its bits for local player 0's actions
+   this tick (the app sets IOSCheat_pfnActionBits to it), the word typed in
+   the console (IOSCheat_pfnTyped), and the level picked (1..ctLevels; 0:
+   none) once IOSTOUCH_REQ_LEVEL comes */
+unsigned long IOSTouch_CheatBits(void);
+void IOSTouch_CheatTyped(void);
+int IOSTouch_TakeLevelPick(void);
+void IOSTouch_CheatLevelFailed(void); /* the level picked couldn't be started */
 /* Main thread: a line of news over the game for fSeconds (where the overlay
    shows CAMERA's messages), e.g. where others join a game hosted here */
 void IOSTouch_ShowMessage(const char *str, double fSeconds);

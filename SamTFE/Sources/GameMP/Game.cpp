@@ -22,6 +22,12 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "IOSPhotoCam.h"
 static void IOS_NetCharacter(CPlayerCharacter &pc);
 #endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCheat.h"
+// (set by the app: ios/IOSCheat.h)
+unsigned long (*IOSCheat_pfnActionBits)(void) = NULL;
+void (*IOSCheat_pfnTyped)(void) = NULL;
+#endif
 #ifndef PLATFORM_FREEBSD
 #include <sys/timeb.h>
 #endif
@@ -138,6 +144,9 @@ INDEX gam_bWaitAllPlayers = FALSE;
 INDEX gam_iInitialMana = 100;
 INDEX gam_bQuickLoad = FALSE;
 INDEX gam_bQuickSave = FALSE;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+INDEX gam_bIOSAllowCheats = FALSE;  // (iOS) ALLOW CHEATS, a network game's host setting
+#endif
 INDEX gam_iQuickSaveSlots = 8;
 
 INDEX gam_iQuickStartDifficulty = 1;
@@ -893,6 +902,13 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
     }
   }
 #endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // the touch controls' cheat (sithewok): on, flying, through walls, for the
+  // first local player
+  if (ctl_iCurrentPlayerLocal==0 && IOSCheat_pfnActionBits!=NULL) {
+    paAction.pa_ulButtons |= (ULONG)IOSCheat_pfnActionBits();
+  }
+#endif
 }
 
 CButtonAction &CControls::AddButtonAction(void)
@@ -1280,6 +1296,12 @@ void CGame::GameHandleTimer(void)
 //        paClearAction.pa_aRotation     = ANGLE3D(0,0,0);
 //        paClearAction.pa_aViewRotation = ANGLE3D(0,0,0);
         paClearAction.pa_ulButtons     = 0;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+        // (but not the touch controls' cheat: in a network game the game goes on)
+        if (iPlayer==0 && IOSCheat_pfnActionBits!=NULL) {
+          paClearAction.pa_ulButtons = (ULONG)IOSCheat_pfnActionBits();
+        }
+#endif
 
         // clear the action in the client source object
         pls.SetAction(paClearAction);
@@ -1407,6 +1429,9 @@ void CGame::InitInternal( void)
 
   _pShell->DeclareSymbol("user INDEX gam_bQuickLoad;", (void *)&gam_bQuickLoad);
   _pShell->DeclareSymbol("user INDEX gam_bQuickSave;", (void *)&gam_bQuickSave);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  _pShell->DeclareSymbol("persistent user INDEX gam_bIOSAllowCheats;", (void *)&gam_bIOSAllowCheats);
+#endif
   _pShell->DeclareSymbol("user INDEX gam_iQuickSaveSlots;", (void *)&gam_iQuickSaveSlots);
   _pShell->DeclareSymbol("user INDEX gam_iQuickStartDifficulty;", (void *)&gam_iQuickStartDifficulty);
   _pShell->DeclareSymbol("user INDEX gam_iQuickStartMode;",       (void *)&gam_iQuickStartMode);

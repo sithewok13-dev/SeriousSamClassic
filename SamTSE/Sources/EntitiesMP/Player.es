@@ -297,6 +297,13 @@ static void KillAllEnemies(CEntity *penKiller)
 #define READ_MESSAGE_HINT_AND
 #endif
 #if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCheat.h"
+#else
+#define IOSCHEAT_PLACT_ON     0
+#define IOSCHEAT_PLACT_FLY    0
+#define IOSCHEAT_PLACT_NOCLIP 0
+#endif
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
 // the touch controls' CAMERA takes its clean photo here (ios/IOSCapture.c)
 extern "C" void IOSCapture_AfterScene(void);
 #define IOS_CAPTURE_AFTER_SCENE() IOSCapture_AfterScene()
@@ -1197,6 +1204,27 @@ properties:
  190 INDEX m_iSeriousBombCount = 0,      // ammount of serious bombs player owns
  191 INDEX m_iLastSeriousBombCount = 0,  // ammount of serious bombs player had before firing
  192 FLOAT m_tmSeriousBombFired = -10.0f,  // when the bomb was last fired
+
+ // the touch controls' cheat (sithewok, ios/IOSCheat.h): on, flying, through walls, as the last actions said
+ 240 BOOL m_bIOSCheat = FALSE,
+ 241 BOOL m_bIOSFly = FALSE,
+ 242 BOOL m_bIOSNoclip = FALSE,
+ 243 BOOL m_bIOSPhysics = FALSE,          // its flying or noclip set the physics flags
+ 244 CTString m_strIOSCheatWorld = "",    // the level it last gave everything in
+ 245 BOOL m_bIOSWasAlive = FALSE,
+ 246 INDEX m_ctIOSCatches = 0,            // falls caught (the view flashes each time)
+ 247 INDEX m_iIOSSafeNext = 0,            // the last 4 places stood on, every 0.15 s (a ring)
+ 248 INDEX m_ctIOSSafe = 0,
+ 249 FLOAT m_tmIOSSafeLast = -100.0f,
+ 250 FLOAT m_tmIOSFalling = 0.0f,         // how long it has been falling
+ 251 FLOAT3D m_vIOSSafe0 = FLOAT3D(0,0,0),
+ 252 FLOAT3D m_vIOSSafe1 = FLOAT3D(0,0,0),
+ 253 FLOAT3D m_vIOSSafe2 = FLOAT3D(0,0,0),
+ 254 FLOAT3D m_vIOSSafe3 = FLOAT3D(0,0,0),
+ 255 ANGLE3D m_aIOSSafe0 = ANGLE3D(0,0,0),
+ 256 ANGLE3D m_aIOSSafe1 = ANGLE3D(0,0,0),
+ 257 ANGLE3D m_aIOSSafe2 = ANGLE3D(0,0,0),
+ 258 ANGLE3D m_aIOSSafe3 = ANGLE3D(0,0,0),
 
 {
   ShellLaunchData ShellLaunchData_array;  // array of data describing flying empty shells
@@ -3126,6 +3154,13 @@ functions:
       return;
     }
 
+    // the touch controls' cheat: nothing harms the player, and a fall into
+    // the abyss puts them back where they last stood (if it can: otherwise
+    // the fall goes on as without the cheat)
+    if (m_bIOSCheat) {
+      if (dmtType!=DMT_ABYSS || IOSCheat_CatchFall()) { return; }
+    }
+
     // god mode -> no one can harm you
     if( cht_bGod && CheatsEnabled() ) { return; }
 
@@ -3681,6 +3716,8 @@ functions:
 
     // make a copy of action for adjustments
     CPlayerAction paAction = paOriginal;
+    // (the touch controls' cheat, from its bits in the actions)
+    IOSCheat_Action(paOriginal.pa_ulButtons);
     //CPrintF("applying(%s-%08x): %g\n", GetPredictName(), int(paAction.pa_llCreated),
     //  paAction.pa_vTranslation(3));
 
@@ -3814,6 +3851,8 @@ functions:
     // wanna cheat a bit?
     if (CheatsEnabled()) {
       Cheats();
+    } else {
+      IOSCheat_Physics();  // (the touch controls' cheat's flying, where the game's own cheats are off)
     }
 
     // if teleporting to marker (this cheat is enabled in all versions)
@@ -4717,6 +4756,137 @@ functions:
     }
   }
 
+  // ---- the touch controls' cheat (sithewok, ios/IOSCheat.h) ----
+
+  // whether this player may use it: alone, or in a network game whose host allows it
+  BOOL IOSCheat_Allowed(void)
+  {
+    return GetSP()->sp_ctMaxPlayers==1 || GetSP()->sp_bQuickTest || GetSP()->sp_bIOSAllowCheats;
+  }
+
+  // one of the last places stood on (a ring of 4)
+  FLOAT3D *IOSCheat_SafePos(INDEX i)
+  {
+    // (ECC takes no switch's default: here)
+    if ((i&3)==0) { return &m_vIOSSafe0; }
+    if ((i&3)==1) { return &m_vIOSSafe1; }
+    if ((i&3)==2) { return &m_vIOSSafe2; }
+    return &m_vIOSSafe3;
+  }
+  ANGLE3D *IOSCheat_SafeRot(INDEX i)
+  {
+    if ((i&3)==0) { return &m_aIOSSafe0; }
+    if ((i&3)==1) { return &m_aIOSSafe1; }
+    if ((i&3)==2) { return &m_aIOSSafe2; }
+    return &m_aIOSSafe3;
+  }
+
+  // everything: all weapons and their ammo, full health and armour
+  void IOSCheat_GiveAll(void)
+  {
+    ((CPlayerWeapons&)*m_penWeapons).CheatGiveAll();
+    if (GetHealth()<TopHealth()) { SetHealth(TopHealth()); }
+    if (m_fArmor<TopArmor()) { m_fArmor = TopArmor(); }
+    m_iSeriousBombCount = 3;
+  }
+
+  // A fall caught: back to the oldest of the last places stood on (about half
+  // a second before the fall), still. FALSE if there is none.
+  BOOL IOSCheat_CatchFall(void)
+  {
+    // (never while the game walks the player: a cutscene could wait for them forever)
+    if (m_ctIOSSafe<=0 || m_penActionMarker!=NULL) { return FALSE; }
+    const INDEX iOldest = (m_iIOSSafeNext-m_ctIOSSafe)&3;
+    CPlacement3D pl(*IOSCheat_SafePos(iOldest), *IOSCheat_SafeRot(iOldest));
+    // (that place is used up: one that drops the player again isn't used twice)
+    m_ctIOSSafe--;
+    Teleport(pl, FALSE);
+    ForceFullStop();
+    m_tmIOSFalling = 0.0f;
+    m_ctIOSCatches++;
+    return TRUE;
+  }
+
+  // Once a tick, from the player's actions (every machine in a network game
+  // runs it alike, from the same actions)
+  void IOSCheat_Action(ULONG ulButtons)
+  {
+    const BOOL bWasOn = m_bIOSCheat;
+    m_bIOSCheat = (ulButtons&IOSCHEAT_PLACT_ON) && IOSCheat_Allowed();
+    // (not while the game walks the player: a cutscene, a level's start)
+    m_bIOSFly = m_bIOSCheat && (ulButtons&IOSCHEAT_PLACT_FLY) && m_penActionMarker==NULL;
+    m_bIOSNoclip = m_bIOSCheat && (ulButtons&IOSCHEAT_PLACT_NOCLIP) && m_penActionMarker==NULL;
+    const BOOL bAlive = (GetFlags()&ENF_ALIVE) ? TRUE : FALSE;
+    const BOOL bWasAlive = m_bIOSWasAlive;
+    m_bIOSWasAlive = bAlive;
+    if (!m_bIOSCheat || !bAlive) {
+      m_tmIOSFalling = 0.0f;
+      return;
+    }
+    // everything given as it comes on, at the start of each level and after
+    // being reborn (the places stood on start over then too)
+    const CTString strWorld = GetWorld()->wo_fnmFileName;
+    if (!bWasOn || !bWasAlive || m_strIOSCheatWorld!=strWorld) {
+      m_strIOSCheatWorld = strWorld;
+      m_ctIOSSafe = 0;
+      IOSCheat_GiveAll();
+    }
+    ((CPlayerWeapons&)*m_penWeapons).IOSCheatFillAmmo();
+    // where it stands, every 0.15 s, for a fall into a pit: only on the
+    // level's own ground (not a lift, a door, a crate or an enemy, which may
+    // have gone by then). Flying or through walls, and after a jump of more
+    // than 4 m between two of them (a teleporter), they start over.
+    const FLOAT tmNow = _pTimer->CurrentTick();
+    if (m_bIOSFly || m_bIOSNoclip) { m_ctIOSSafe = 0; }
+    CEntity *penIOSGround = en_penReference;
+    const BOOL bStanding = penIOSGround!=NULL && !m_bIOSFly && !m_bIOSNoclip;
+    const BOOL bOnGround = bStanding && penIOSGround->en_RenderType==CEntity::RT_BRUSH
+                        && !(penIOSGround->en_ulPhysicsFlags&EPF_MOVABLE);
+    if (bOnGround && tmNow-m_tmIOSSafeLast>=0.15f) {
+      m_tmIOSSafeLast = tmNow;
+      if (m_ctIOSSafe>0 && (GetPlacement().pl_PositionVector-*IOSCheat_SafePos(m_iIOSSafeNext-1)).Length()>4.0f) {
+        m_ctIOSSafe = 0;
+      }
+      *IOSCheat_SafePos(m_iIOSSafeNext) = GetPlacement().pl_PositionVector;
+      *IOSCheat_SafeRot(m_iIOSSafeNext) = GetPlacement().pl_OrientationAngle;
+      m_iIOSSafeNext = (m_iIOSSafeNext+1)&3;
+      m_ctIOSSafe = Min(m_ctIOSSafe+1, INDEX(4));
+    }
+    // falling for 3 s on end (a pit with no bottom that hurts): caught too
+    const FLOAT fDown = en_vCurrentTranslationAbsolute%en_vGravityDir;
+    if (!bStanding && !m_bIOSFly && !m_bIOSNoclip && fDown>5.0f) {
+      m_tmIOSFalling += _pTimer->TickQuantum;
+      if (m_tmIOSFalling>3.0f) {
+        IOSCheat_CatchFall();
+      }
+    } else {
+      m_tmIOSFalling = 0.0f;
+    }
+  }
+
+  // its flying and noclip where the game's own cheats are off (a network
+  // game, a cutscene); in single player Cheats() does it
+  void IOSCheat_Physics(void)
+  {
+    const BOOL bFlyOn = m_bIOSFly || m_bIOSNoclip;
+    if (!bFlyOn && !m_bIOSPhysics) { return; }
+    m_bIOSPhysics = bFlyOn;
+    const BOOL bIsFlying = !(GetPhysicsFlags() & EPF_TRANSLATEDBYGRAVITY);
+    if (bFlyOn && !bIsFlying) {
+      SetPhysicsFlags(GetPhysicsFlags() & ~(EPF_TRANSLATEDBYGRAVITY|EPF_ORIENTEDBYGRAVITY));
+      en_plViewpoint.pl_OrientationAngle = ANGLE3D(0, 0, 0);
+    } else if (!bFlyOn && bIsFlying) {
+      SetPhysicsFlags(GetPhysicsFlags() | EPF_TRANSLATEDBYGRAVITY|EPF_ORIENTEDBYGRAVITY);
+      en_plViewpoint.pl_OrientationAngle = ANGLE3D(0, 0, 0);
+    }
+    const BOOL bIsGhost = !(GetCollisionFlags() & ((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    if (m_bIOSNoclip && !bIsGhost) {
+      SetCollisionFlags(GetCollisionFlags() & ~((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    } else if (!m_bIOSNoclip && bIsGhost) {
+      SetCollisionFlags(GetCollisionFlags() | ((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
+    }
+  }
+
   // check if cheats can be active
   BOOL CheatsEnabled(void)
   {
@@ -4726,7 +4896,8 @@ functions:
   // Cheats
   void Cheats(void)
   {
-    BOOL bFlyOn = cht_bFly || cht_bGhost;
+    BOOL bFlyOn = cht_bFly || cht_bGhost || m_bIOSFly || m_bIOSNoclip;
+    m_bIOSPhysics = m_bIOSFly || m_bIOSNoclip;
     // fly mode
     BOOL bIsFlying = !(GetPhysicsFlags() & EPF_TRANSLATEDBYGRAVITY);
     if (bFlyOn && !bIsFlying) {
@@ -4739,9 +4910,9 @@ functions:
 
     // ghost mode
     BOOL bIsGhost = !(GetCollisionFlags() & ((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
-    if (cht_bGhost && !bIsGhost) {
+    if ((cht_bGhost || m_bIOSNoclip) && !bIsGhost) {
       SetCollisionFlags(GetCollisionFlags() & ~((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
-    } else if (!cht_bGhost && bIsGhost) {
+    } else if (!(cht_bGhost || m_bIOSNoclip) && bIsGhost) {
       SetCollisionFlags(GetCollisionFlags() | ((ECBI_BRUSH|ECBI_MODEL)<<ECB_TEST));
     }
 

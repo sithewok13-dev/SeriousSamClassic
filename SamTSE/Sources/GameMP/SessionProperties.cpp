@@ -185,6 +185,10 @@ void CGame::SetQuickStartSession(CSessionProperties &sp)
 }
 
 // set properties for a multiplayer session
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+extern INDEX gam_bIOSAllowCheats;
+#endif
+
 void CGame::SetMultiPlayerSession(CSessionProperties &sp)
 {
   // clear
@@ -211,6 +215,9 @@ void CGame::SetMultiPlayerSession(CSessionProperties &sp)
   sp.sp_bAllowHealth      = gam_bAllowHealth     ;
   sp.sp_bAllowArmor       = gam_bAllowArmor      ;
   sp.sp_bInfiniteAmmo     = gam_bInfiniteAmmo    ;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  sp.sp_bIOSAllowCheats = gam_bIOSAllowCheats;
+#endif
   sp.sp_bRespawnInPlace   = gam_bRespawnInPlace  ;
 
   sp.sp_fManaTransferFactor = gam_fManaTransferFactor;

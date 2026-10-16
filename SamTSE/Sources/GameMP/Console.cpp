@@ -15,6 +15,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "StdAfx.h"
 #include "LCDDrawing.h"
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSCheat.h"
+#endif
 
 extern CGame *_pGame;
 
@@ -344,6 +347,21 @@ static void Key_Return(void)
   // add to history
   strInputHistory += strEditingLine +"\r\n";
   iHistoryLine = 0;
+
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // the touch controls' cheat word (sithewok, in any case, with or without a
+  // '/'): it switches the cheat on or off, and isn't sent as a chat line
+  {
+    const char *strIOSWord = strEditingLine;
+    if (strIOSWord[0]=='/') { strIOSWord++; }
+    if (strcasecmp(strIOSWord, IOSCHEAT_WORD)==0) {
+      strEditingLine = "";
+      iCursorPos = 0;
+      if (IOSCheat_pfnTyped!=NULL) { IOSCheat_pfnTyped(); }
+      return;
+    }
+  }
+#endif
 
   // check for cheats
   #define CHEAT_PREFIX "please"

@@ -2046,6 +2046,16 @@ functions:
   }
 
   // cheat give all
+  // (the touch controls' cheat) every ammo full, as it runs low
+  void IOSCheatFillAmmo(void) {
+    if (m_iBullets<m_iMaxBullets) { m_iBullets = m_iMaxBullets; }
+    if (m_iShells<m_iMaxShells) { m_iShells = m_iMaxShells; }
+    if (m_iRockets<m_iMaxRockets) { m_iRockets = m_iMaxRockets; }
+    if (m_iGrenades<m_iMaxGrenades) { m_iGrenades = m_iMaxGrenades; }
+    if (m_iElectricity<m_iMaxElectricity) { m_iElectricity = m_iMaxElectricity; }
+    if (m_iIronBalls<m_iMaxIronBalls) { m_iIronBalls = m_iMaxIronBalls; }
+  };
+
   void CheatGiveAll(void) {
     // all weapons
     m_iAvailableWeapons = 0x1EBFF;

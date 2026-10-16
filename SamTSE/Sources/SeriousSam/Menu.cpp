@@ -587,6 +587,9 @@ CMGButton mgNetworkLevel;
 CMGTrigger mgNetworkMaxPlayers;
 CMGTrigger mgNetworkWaitAllPlayers;
 CMGTrigger mgNetworkVisible;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+CMGTrigger mgNetworkAllowCheats;
+#endif
 CMGButton mgNetworkGameOptions;
 CMGButton mgNetworkStartStart;
 
@@ -6027,15 +6030,30 @@ void CNetworkStartMenu::Initialize_t(void)
   mgNetworkGameOptions.mg_bfsFontSize = BFS_MEDIUM;
   mgNetworkGameOptions.mg_iCenterI = 0;
   mgNetworkGameOptions.mg_pmgUp = &mgNetworkVisible;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  mgNetworkGameOptions.mg_pmgDown = &mgNetworkAllowCheats;
+#else
   mgNetworkGameOptions.mg_pmgDown = &mgNetworkStartStart;
+#endif
   mgNetworkGameOptions.mg_strTip = TRANS("adjust game rules");
   mgNetworkGameOptions.mg_pActivatedFunction = &StartGameOptionsFromNetwork;
   gm_lhGadgets.AddTail( mgNetworkGameOptions.mg_lnNode);
 
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // (iOS) the touch controls' cheat for every player, on themselves
+  TRIGGER_MG(mgNetworkAllowCheats, 9,
+       mgNetworkGameOptions, mgNetworkStartStart, TRANS("Allow cheats:"), astrNoYes);
+  mgNetworkAllowCheats.mg_strTip = TRANS("if on, every player can use the cheat (sithewok) on themselves");
+#endif
+
   // start button
   mgNetworkStartStart.mg_bfsFontSize = BFS_LARGE;
   mgNetworkStartStart.mg_boxOnScreen = BoxBigRow(7, _fGlobalButtonAdjuster);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  mgNetworkStartStart.mg_pmgUp = &mgNetworkAllowCheats;
+#else
   mgNetworkStartStart.mg_pmgUp = &mgNetworkGameOptions;
+#endif
   mgNetworkStartStart.mg_pmgDown = &mgNetworkSessionName;
   mgNetworkStartStart.mg_strText = TRANS("START");
   gm_lhGadgets.AddTail( mgNetworkStartStart.mg_lnNode);
@@ -6068,6 +6086,10 @@ void CNetworkStartMenu::StartMenu(void)
 
   mgNetworkVisible.mg_iSelected = _pShell->GetINDEX("ser_bEnumeration");
   mgNetworkVisible.ApplyCurrentSelection();
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  mgNetworkAllowCheats.mg_iSelected = Clamp(_pShell->GetINDEX("gam_bIOSAllowCheats"), (INDEX)0, (INDEX)1);
+  mgNetworkAllowCheats.ApplyCurrentSelection();
+#endif
 
   UpdateNetworkLevel(0);
 
@@ -6081,6 +6103,9 @@ void CNetworkStartMenu::EndMenu(void)
   _pShell->SetINDEX("gam_bWaitAllPlayers", mgNetworkWaitAllPlayers.mg_iSelected);
   _pShell->SetINDEX("gam_ctMaxPlayers", mgNetworkMaxPlayers.mg_iSelected+2);
   _pShell->SetINDEX("ser_bEnumeration", mgNetworkVisible.mg_iSelected);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  _pShell->SetINDEX("gam_bIOSAllowCheats", mgNetworkAllowCheats.mg_iSelected);
+#endif
 
   CGameMenu::EndMenu();
 }

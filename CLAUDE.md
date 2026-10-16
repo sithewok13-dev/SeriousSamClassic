@@ -18,6 +18,13 @@ reads everything on a phone.
   asks every address on the Wi-Fi, no broadcasts), the menus (iOS keyboard for text
   fields, tap-to-join server list) and player IDs (mixed with a per-install key
   when joining someone else's game; saves keep the stored IDs).
+  CHEAT (`sithewok`, modelled on the Jedi Knight port's) is `IOSCheat.h` (the action
+  bits), `IOSCheatGame.cpp` (level picker, Sam's lines, what the overlay needs), the
+  overlay's cheat section, and hunks: `IOSCheat_*` in `Player.es` (god mode, ammo kept
+  full, fly, noclip, pits caught), `IOSCheatFillAmmo` in all three `PlayerWeapons*.es`,
+  the bits in `Game.cpp`, the typed word in `Console.cpp`, `sp_bIOSAllowCheats` in
+  `SessionProperties` and ALLOW CHEATS in `Menu.cpp`. It is driven by bits in the
+  player's own actions, so a network game stays in step.
   `ios_app.cmake` sets names, bundle ids and icons. `RELEASE_NOTES.md` is the
   release text and full player guide.
 - **CI:** `.github/workflows/ios.yml` (`RELEASE_IPAS`, `RELEASE_TITLE`).
@@ -57,7 +64,8 @@ reads everything on a phone.
   - Move stick where the left thumb lands; drag elsewhere to look.
   - QUICK SAVE / QUICK LOAD: a 0.3 s hold with a ring. Sliding off cancels; QUICK
     SAVE wins a tie.
-  - MENU: tap = game menu; hold 0.45 s = tray with SENS, GYRO, FPS, CAMERA, keyboard.
+  - MENU: tap = game menu; hold 0.45 s = tray with SENS, GYRO, FPS, CAMERA, CHEAT,
+    keyboard.
   - CAMERA (top row): tap = photo, hold 0.5 s = selfie (1/3/5 photos; up to 48 nearest
     enemies posed in frames of their own animations, `IOSSELFIE_MAX_PEOPLE`), slide
     sideways = burst, slide down = Action Freeze, slide up = cinematic burst. The tray's
@@ -72,6 +80,15 @@ reads everything on a phone.
     open (music plays on); a haptic tick per slice.
   - Envelope: tap = mark read, hold = NETRICSA. USE never opens NETRICSA. BOMB shows
     the bomb count. No corner ammo row.
+  - CHEAT (`sithewok`): the tray's CHEAT shows the button and switches the cheat on
+    (with one of Sam's lines from the game's files: FE four, SE "Sam I am" and
+    "Yeehaw"), and tapped again leaves cheat mode; held 0.5 s, CHEAT switches it off
+    (grey) or on (gold); a tap does nothing.
+    Typing the word toggles it (and the button). While on: JUMP held still 0.5 s =
+    fly (double-tap JUMP lands), USE = noclip, CROUCH = level picker (counts every
+    0.4 s, lift to go); small red labels under them. Flying and noclip end at each
+    new level. The button is remembered; the
+    cheat starts off each launch. Network games: only with the host's ALLOW CHEATS.
   - Network games: the same controls, except QUICK SAVE / QUICK LOAD (only for the
     host of a co-op game), and nothing holds the game still (wheel, menu). Selfies and
     Action Freeze are single player only; photos work.

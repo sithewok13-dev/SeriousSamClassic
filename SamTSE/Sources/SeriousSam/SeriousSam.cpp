@@ -36,6 +36,8 @@ extern "C" int IOS_IsInBackground(void);
 extern "C" void IOS_WaitForForeground(void);
 #include "IOSTouch.h"
 #include "IOSNet.h"
+#include "IOSCheat.h"
+#include "IOSCheatGame.h"
 #endif
 #if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
 #include "IOSCapture.h"
@@ -392,6 +394,13 @@ static void IOS_UpdateTouchControls(void)
   // QUICK SAVE / QUICK LOAD only for the host of a cooperative one (whose
   // quick load restarts it for everyone, as on PC)
   hud.bNetwork = (_gmRunningGameMode==GM_NETWORK);
+  // the cheat (sithewok): the overlay drives it (IOSCheat.h)
+  IOSCheat_pfnActionBits = IOSTouch_CheatBits;
+  IOSCheat_pfnTyped = IOSTouch_CheatTyped;
+  hud.bCheatAllowed = IOSCheatGame_Allowed();
+  hud.ctLevels = IOSCheatGame_NumLevels();
+  hud.ctCatches = IOSCheatGame_Catches();
+  hud.uWorld = IOSCheatGame_World();
   hud.bNoSaves = hud.bNetwork && !(_pNetwork->IsServer()
     && ((const CSessionProperties *)_pNetwork->GetSessionProperties())->sp_bCooperative);
   // the weapon wheel: what the player has, and the HUD's icons it still lacks
@@ -443,6 +452,14 @@ static void IOS_UpdateTouchControls(void)
       _pShell->SetINDEX("gam_bQuickLoad", 1);
     } else {
       CPrintF(TRANS("No quicksave yet\n"));
+    }
+  }
+  if (iRequests&IOSTOUCH_REQ_CHEATSOUND) {
+    IOSCheatGame_PlaySound();  // (the cheat came on: one of Sam's lines)
+  }
+  if ((iRequests&IOSTOUCH_REQ_LEVEL) && iMode==IOSTOUCH_GAMEPLAY) {
+    if (!IOSCheatGame_GoToLevel(IOSTouch_TakeLevelPick())) {  // (the cheat's level picker)
+      IOSTouch_CheatLevelFailed();
     }
   }
   if ((iRequests&IOSTOUCH_REQ_READMESSAGES) && iMode==IOSTOUCH_GAMEPLAY) {

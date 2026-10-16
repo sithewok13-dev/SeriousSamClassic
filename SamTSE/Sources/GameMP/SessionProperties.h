@@ -81,6 +81,8 @@ public:
   ULONG sp_ulLevelsMask;    // mask of visited levels so far
 
   BOOL  sp_bUseExtraEnemies;  // spawn extra multiplayer enemies
+
+  BOOL  sp_bIOSAllowCheats;   // (iOS) every player may use the touch controls' cheat on themselves
 };
 
 // NOTE: never instantiate CSessionProperties, as its size is not fixed to the size defined in engine
