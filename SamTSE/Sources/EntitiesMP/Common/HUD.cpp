@@ -489,7 +489,14 @@ extern "C" void IOS_GetWeapons(IOSTouchWeapons *pw)
 {
   memset(pw, 0, sizeof(*pw));
   pw->iMap = IOSTOUCH_WHEEL_TSE;
-  CPlayer *pl = (CPlayer *)CEntity::GetPlayerEntity(0);
+  // (this phone's player: in a network game, player 0 may be someone else's)
+  CPlayer *pl = NULL;
+  for (INDEX iIOSPlayer=0; iIOSPlayer<CEntity::GetMaxPlayers() && pl==NULL; iIOSPlayer++) {
+    CEntity *penIOSPlayer = CEntity::GetPlayerEntity(iIOSPlayer);
+    if (penIOSPlayer!=NULL && _pNetwork->IsPlayerLocal(penIOSPlayer)) {
+      pl = (CPlayer *)penIOSPlayer;
+    }
+  }
   if (pl==NULL || pl->m_penWeapons==NULL) return;
   CPlayerWeapons *penOld = _penWeapons;
   _penWeapons = (CPlayerWeapons *)&*pl->m_penWeapons;

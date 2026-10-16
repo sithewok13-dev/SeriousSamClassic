@@ -166,6 +166,8 @@ typedef struct IOSTouchHud {
   int ctMessages;   /* the unread messages it shows */
   int bSniper;      /* holding the sniper rifle (Second Encounter) */
   int ctBombs;      /* serious bombs (Second Encounter) */
+  int bNetwork;     /* a network game (from the main loop, not the HUD): selfies and Action Freeze don't work */
+  int bNoSaves;     /* no QUICK SAVE / QUICK LOAD: a network game, unless hosting a cooperative one */
 } IOSTouchHud;
 
 /* What the player asked for, carried out by the main loop (IOSTouch_Update's result) */
@@ -256,6 +258,14 @@ void IOSTouch_SetWeaponIcon(int iWeapon, const unsigned char *pubRGBA, int iWidt
 /* Main thread: whether the weapon wheel is open in a game being played: the
    game holds still (the local pause), draws no "Paused" and no HUD weapon row */
 int IOSTouch_HoldsGame(void);
+/* Main thread: a line of news over the game for fSeconds (where the overlay
+   shows CAMERA's messages), e.g. where others join a game hosted here */
+void IOSTouch_ShowMessage(const char *str, double fSeconds);
+/* Main thread, every frame: bTyping while a menu's text field is being typed
+   into (a server's address, a player's name). The iOS keyboard shows, and
+   the screen slides up to keep the field (fTop..fBottom: fractions of the
+   screen's height) above it. */
+void IOSTouch_MenuKeyboard(void *pSDLWindow, int bTyping, float fTop, float fBottom);
 
 /* Provided by the HUD (Entities Common/HUD.cpp), main thread */
 void IOS_GetHudState(IOSTouchHud *pHud);

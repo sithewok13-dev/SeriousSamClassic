@@ -81,5 +81,7 @@
 	     the app when it asks. -->
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>CAMERA saves your photos and selfies of the game to your photo library.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Multiplayer finds, hosts and joins games on your Wi-Fi.</string>
 </dict>
 </plist>

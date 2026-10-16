@@ -35,6 +35,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 extern "C" int IOS_IsInBackground(void);
 extern "C" void IOS_WaitForForeground(void);
 #include "IOSTouch.h"
+#include "IOSNet.h"
 #endif
 #if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
 #include "IOSCapture.h"
@@ -368,12 +369,13 @@ static void IOS_PushKey(SDL_Keycode iKey)
 // out what the player asked for on them
 static void IOS_UpdateTouchControls(void)
 {
-  // gameplay controls only while a single-player game is being played; in
-  // menus, NETRICSA, demos and the intro touches are mouse clicks
+  // gameplay controls while a game is being played, alone or in a network
+  // game (hosted or joined; not split screen); in menus, NETRICSA, demos
+  // and the intro touches are mouse clicks
   const BOOL bComputer = !(_pGame->gm_csComputerState==CS_OFF || _pGame->gm_csComputerState==CS_ONINBACKGROUND);
   const BOOL bConsoleUp = (_pGame->gm_csConsoleState==CS_ON || _pGame->gm_csConsoleState==CS_TURNINGON);
   int iMode = IOSTOUCH_HIDDEN;
-  if (_gmRunningGameMode==GM_SINGLE_PLAYER && _pGame->gm_bGameOn && !bMenuActive && !bMenuRendering && !bComputer) {
+  if ((_gmRunningGameMode==GM_SINGLE_PLAYER || _gmRunningGameMode==GM_NETWORK) && _pGame->gm_bGameOn && !bMenuActive && !bMenuRendering && !bComputer) {
     if (bConsoleUp || _pGame->gm_csConsoleState==CS_TURNINGOFF) {
       iMode = IOSTOUCH_CONSOLE;
     } else if (_pGame->gm_csConsoleState==CS_OFF && !IsIconic(_hwndMain)) {
@@ -386,6 +388,12 @@ static void IOS_UpdateTouchControls(void)
   }
   IOSTouchHud hud;
   IOS_GetHudState(&hud);
+  // a network game: no selfies or Action Freeze (they pose the world), and
+  // QUICK SAVE / QUICK LOAD only for the host of a cooperative one (whose
+  // quick load restarts it for everyone, as on PC)
+  hud.bNetwork = (_gmRunningGameMode==GM_NETWORK);
+  hud.bNoSaves = hud.bNetwork && !(_pNetwork->IsServer()
+    && ((const CSessionProperties *)_pNetwork->GetSessionProperties())->sp_bCooperative);
   // the weapon wheel: what the player has, and the HUD's icons it still lacks
   IOSTouchWeapons wpn;
   IOS_GetWeapons(&wpn);
@@ -426,10 +434,10 @@ static void IOS_UpdateTouchControls(void)
       tmResumed = tmNow;
     }
   }
-  if ((iRequests&IOSTOUCH_REQ_QUICKSAVE) && iMode==IOSTOUCH_GAMEPLAY) {
+  if ((iRequests&IOSTOUCH_REQ_QUICKSAVE) && iMode==IOSTOUCH_GAMEPLAY && !hud.bNoSaves) {
     _pShell->SetINDEX("gam_bQuickSave", 1);  // the game saves it this frame
   }
-  if ((iRequests&IOSTOUCH_REQ_QUICKLOAD) && iMode==IOSTOUCH_GAMEPLAY) {
+  if ((iRequests&IOSTOUCH_REQ_QUICKLOAD) && iMode==IOSTOUCH_GAMEPLAY && !hud.bNoSaves) {
     // loading stops the game first, so a missing quicksave would end it
     if (FileExists(_pGame->GetQuickSaveName(FALSE))) {
       _pShell->SetINDEX("gam_bQuickLoad", 1);
@@ -440,6 +448,41 @@ static void IOS_UpdateTouchControls(void)
   if ((iRequests&IOSTOUCH_REQ_READMESSAGES) && iMode==IOSTOUCH_GAMEPLAY) {
     IOS_MarkAllMessagesRead();  // the HUD's messages box stops blinking (and dims)
   }
+
+  // iOS asks for Local Network access once: as the network menus open, before any search
+  extern CNetworkMenu gmNetworkMenu;
+  extern CNetworkJoinMenu gmNetworkJoinMenu;
+  extern CNetworkStartMenu gmNetworkStartMenu;
+  static BOOL bAskedLocalNetwork = FALSE;
+  if (!bAskedLocalNetwork && bMenuActive && (pgmCurrentMenu==&gmNetworkMenu || pgmCurrentMenu==&gmNetworkJoinMenu
+      || pgmCurrentMenu==&gmNetworkStartMenu)) {
+    bAskedLocalNetwork = TRUE;
+    IOSNet_AskLocalNetwork();
+  }
+
+  static BOOL bWasHosting = FALSE;
+  const BOOL bHosting = _gmRunningGameMode==GM_NETWORK && _pGame->gm_bGameOn && _pNetwork->IsServer();
+  if (bHosting && !bWasHosting) {
+    char strAddress[64];
+    CTString strMessage;
+    if (IOSNet_LocalAddress(strAddress, sizeof(strAddress))) {
+      const INDEX iPort = _pShell->GetINDEX("net_iPort");
+      if (iPort!=25600) {
+        snprintf(strAddress+strlen(strAddress), sizeof(strAddress)-strlen(strAddress), ":%d", (int)iPort);
+      }
+      strMessage.PrintF(TRANS("Others join at %s (or SEARCH LAN)"), strAddress);
+    } else {
+      strMessage = TRANS("Not on Wi-Fi: others on Wi-Fi can't join");
+    }
+    CPrintF("%s\n", (const char *)strMessage);
+    IOSTouch_ShowMessage((const char *)strMessage, 10.0);
+    IOSNet_AskLocalNetwork(); // (and asks now, not as the first player joins)
+  }
+  bWasHosting = bHosting;
+
+  extern BOOL _bEditingString;
+  extern FLOAT _fIOSEditTop, _fIOSEditBottom;
+  IOSTouch_MenuKeyboard(_hwndMain, bMenuActive && _bEditingString, _fIOSEditTop, _fIOSEditBottom);
 }
 #endif
 
@@ -1118,6 +1161,11 @@ void DoGame(void)
   // do the main game loop
   if( _gmRunningGameMode != GM_NONE) {
     _pGame->GameMainLoop();
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (the intro level behind the menu, or a game: server searches go on)
+    extern void GameAgent_EnumUpdate(void);
+    GameAgent_EnumUpdate();
+#endif
   // if game is not started
   } else {
     // just handle broadcast messages
@@ -1580,6 +1628,10 @@ int SubMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int 
           MenuOnKeyDown(VK_LBUTTON);
         } else if (msg.message==WM_RBUTTONDOWN || msg.message==WM_RBUTTONDBLCLK) {
           MenuOnKeyDown(VK_RBUTTON);
+#ifdef PLATFORM_IOS
+        } else if (msg.message==WM_LBUTTONUP) {
+          MenuOnTouchUp();
+#endif
         } else if (msg.message==WM_MOUSEMOVE) {
           MenuOnMouseMove(LOWORD(msg.lParam), HIWORD(msg.lParam));
 #ifndef WM_MOUSEWHEEL

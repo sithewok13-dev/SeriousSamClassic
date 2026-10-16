@@ -1681,4 +1681,583 @@ extern "C" void IOSCapture_AfterScene(void);
 #endif
 """, "  if (IOSPhotoCam_IsActive()) {\n    gam_bQuickSave = FALSE;")
 
+    # ---------------------------------------------------- multiplayer: LAN
+    # SEARCH LAN looked only on this computer (its own addresses). A phone
+    # asks every address on its Wi-Fi in turn instead (iOS sends no
+    # broadcasts without an entitlement sideloaded apps can't get): first the
+    # default port everywhere, then the next four ports and the default again
+    # where nothing answered yet, in about 2.5 seconds. It runs on a thread of
+    # its own with a socket of its own, so it never touches what a server
+    # hosted meanwhile uses, and the servers it finds join the list on the
+    # main thread (GameAgent_EnumUpdate), never while the menu draws it.
+    p = src / "Engine/GameAgent/GameAgent.cpp"
+    sub(p, "BOOL _bActivatedLocal = FALSE;\n", r"""BOOL _bActivatedLocal = FALSE;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSNet.h"
+// SEARCH LAN on a phone: the addresses on its Wi-Fi, and the query ports
+// (game port + 1) of game ports 25600..25604
+#define IOSLAN_MAX   1024
+#define IOSLAN_PORTS 5
+#define IOSLAN_FOUND 64
+static unsigned int _aulIOSLan[IOSLAN_MAX];
+static int _ctIOSLan = 0;
+static volatile BOOL _bIOSLanBusy = FALSE;  // a search is running (main thread starts it, the thread ends it)
+static pthread_mutex_t _mxIOSLan = PTHREAD_MUTEX_INITIALIZER;
+static CNetworkSession *_apnsIOSLan[IOSLAN_FOUND];  // found, for the main thread to list
+static INDEX _ctIOSLanFound = 0;
+static BOOL _bIOSLanEnded = FALSE;  // the thread has ended: the main thread says so
+static void *_IOSLan_Thread(void *pArg);
+#endif
+""", '#include "IOSNet.h"')
+    sub(p, "  if ( !bInternet && ga_bMSLegacy) {\n", r"""  if ( !bInternet && ga_bMSLegacy) {
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (a phone: a thread of its own asks every address on its Wi-Fi; a
+    // search already running goes on and lists what it finds)
+    if (_bIOSLanBusy) {
+      return;
+    }
+    _ctIOSLan = IOSNet_LanTargets(_aulIOSLan, IOSLAN_MAX);
+    _bIOSLanBusy = TRUE;
+    _pNetwork->ga_strEnumerationStatus = ".";
+    pthread_t thIOSLan;
+    if (pthread_create(&thIOSLan, NULL, _IOSLan_Thread, NULL)==0) {
+      pthread_detach(thIOSLan);
+    } else {
+      _bIOSLanBusy = FALSE;
+      _pNetwork->ga_strEnumerationStatus = "";
+    }
+    return;
+#endif
+""", "    _ctIOSLan = IOSNet_LanTargets(_aulIOSLan, IOSLAN_MAX);\n")
+    # the servers found go into the list here, on the main thread; this runs
+    # whatever the game is doing (an intro level or a game behind the menu)
+    sub(p, "extern void GameAgent_EnumUpdate(void)\n{\n", r"""extern void GameAgent_EnumUpdate(void)
+{
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  pthread_mutex_lock(&_mxIOSLan);
+  for (INDEX iFound=0; iFound<_ctIOSLanFound; iFound++) {
+    _pNetwork->ga_lhEnumeratedSessions.AddTail(_apnsIOSLan[iFound]->ns_lnNode);
+  }
+  _ctIOSLanFound = 0;
+  if (_bIOSLanEnded) {
+    _bIOSLanEnded = FALSE;
+    _pNetwork->ga_bEnumerationChange = FALSE;
+    _pNetwork->ga_strEnumerationStatus = "";
+  }
+  pthread_mutex_unlock(&_mxIOSLan);
+#endif
+""", "  for (INDEX iFound=0; iFound<_ctIOSLanFound; iFound++) {\n")
+    sub(p, "#ifdef PLATFORM_WIN32\nDWORD WINAPI _LocalNet_Thread(LPVOID lpParam) {\n", r"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// One server's answer to \status\ (\key\value pairs), for the server list
+static void _IOSLan_AddServer(char *szReply, const sockaddr_in &sinFrom, DOUBLE tmPing)
+{
+  CTString strPlayers, strMaxPlayers, strLevel, strGameType, strVersion, strGameName, strSessionName, strActiveMod;
+  char *pch = szReply;
+  while (*pch=='\\') {
+    char *pchKey = pch+1;
+    char *pchValue = strchr(pchKey, '\\');
+    if (pchValue==NULL) break;
+    *pchValue++ = 0;
+    char *pchNext = strchr(pchValue, '\\');
+    if (pchNext!=NULL) *pchNext = 0;
+    const CTString strValue = pchValue;
+    if      (!strcmp(pchKey, "gamename"))   strGameName = strValue;
+    else if (!strcmp(pchKey, "gamever"))    strVersion = strValue;
+    else if (!strcmp(pchKey, "hostname"))   strSessionName = strValue;
+    else if (!strcmp(pchKey, "mapname"))    strLevel = strValue;
+    else if (!strcmp(pchKey, "gametype"))   strGameType = strValue;
+    else if (!strcmp(pchKey, "activemod"))  strActiveMod = strValue;
+    else if (!strcmp(pchKey, "numplayers")) strPlayers = strValue;
+    else if (!strcmp(pchKey, "maxplayers")) strMaxPlayers = strValue;
+    if (pchNext==NULL) break;
+    *pchNext = '\\';
+    pch = pchNext;
+  }
+  if (strActiveMod!="") {
+    strGameName = strActiveMod;
+  }
+  CNetworkSession *pns = new CNetworkSession;
+  pns->ns_strSession = strSessionName;
+  pns->ns_strAddress = inet_ntoa(sinFrom.sin_addr) + CTString(":") + CTString(0, "%d", ntohs(sinFrom.sin_port) - 1);
+  pns->ns_tmPing = tmPing;
+  pns->ns_strWorld = strLevel;
+  pns->ns_ctPlayers = atoi(strPlayers);
+  pns->ns_ctMaxPlayers = atoi(strMaxPlayers);
+  pns->ns_strGameType = strGameType;
+  pns->ns_strMod = strGameName;
+  pns->ns_strVer = strVersion;
+  pthread_mutex_lock(&_mxIOSLan);
+  if (_ctIOSLanFound<IOSLAN_FOUND) {
+    _apnsIOSLan[_ctIOSLanFound++] = pns;
+    pns = NULL;
+  }
+  pthread_mutex_unlock(&_mxIOSLan);
+  delete pns;  // (the list for the menu is full)
+}
+
+// Takes the answers that come in for tmWait seconds: each server once
+static void _IOSLan_Receive(SOCKET sock, UBYTE *aubFound, const DOUBLE *atmSent, DOUBLE tmWait)
+{
+  #ifdef FIRST_ENCOUNTER
+  const char *strGame = "\\gamename\\serioussam\\";
+  #else
+  const char *strGame = "\\gamename\\serioussamse\\";
+  #endif
+  const DOUBLE tmEnd = _pTimer->GetHighPrecisionTimer().GetSeconds() + tmWait;
+  for (;;) {
+    const DOUBLE tmLeft = tmEnd - _pTimer->GetHighPrecisionTimer().GetSeconds();
+    if (tmLeft<=0) break;
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(sock, &fds);
+    struct timeval tv;
+    tv.tv_sec = (long)tmLeft;
+    tv.tv_usec = (long)((tmLeft-tv.tv_sec)*1000000.0);
+    if (select(sock+1, &fds, NULL, NULL, &tv)<=0) break;
+    char szReply[2050];
+    sockaddr_in sinFrom;
+    socklen_t slFrom = sizeof(sinFrom);
+    const int iLen = recvfrom(sock, szReply, 2048, 0, (sockaddr *)&sinFrom, &slFrom);
+    if (iLen<=100) continue;
+    szReply[iLen] = 0;
+    if (strstr(szReply, strGame)==NULL) continue;
+    const INDEX iPort = ntohs(sinFrom.sin_port) - 25601;
+    if (iPort<0 || iPort>=IOSLAN_PORTS) continue;
+    for (INDEX i=0; i<_ctIOSLan; i++) {
+      if (_aulIOSLan[i]!=sinFrom.sin_addr.s_addr) continue;
+      if (!(aubFound[i]&(1<<iPort))) {
+        aubFound[i] |= (1<<iPort);
+        _IOSLan_AddServer(szReply, sinFrom, _pTimer->GetHighPrecisionTimer().GetSeconds()-atmSent[i]);
+      }
+      break;
+    }
+  }
+}
+
+static void *_IOSLan_Thread(void *pArg)
+{
+  static UBYTE aubFound[IOSLAN_MAX];  // bit p: query port 25601+p answered
+  static DOUBLE atmSent[IOSLAN_MAX];
+  memset(aubFound, 0, sizeof(aubFound));
+  INDEX ctFound = 0;
+  SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sock!=INVALID_SOCKET) {
+    int iBuffer = 256*1024;
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (const char *)&iBuffer, sizeof(iBuffer));
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (const char *)&iBuffer, sizeof(iBuffer));
+    // (packets to addresses nobody has wait in the send buffer for a while:
+    // never wait for room, and stop sending after 4 seconds)
+    fcntl(sock, F_SETFL, fcntl(sock, F_GETFL)|O_NONBLOCK);
+    const DOUBLE tmStopSending = _pTimer->GetHighPrecisionTimer().GetSeconds() + 4.0;
+    INDEX ctSent = 0;
+    // the default port everywhere first: a first packet to an address waits
+    // while the phone finds it on the Wi-Fi, more of them may be dropped
+    for (INDEX iRound=0; iRound<2; iRound++) {
+      for (INDEX i=0; i<_ctIOSLan; i++) {
+        for (INDEX iPort=0; iPort<(iRound==0 ? 1 : IOSLAN_PORTS); iPort++) {
+          if (aubFound[i]&(1<<iPort)) continue;
+          if (_pTimer->GetHighPrecisionTimer().GetSeconds()>tmStopSending) break;
+          sockaddr_in sin;
+          memset(&sin, 0, sizeof(sin));
+          sin.sin_family = AF_INET;
+          sin.sin_addr.s_addr = _aulIOSLan[i];
+          sin.sin_port = htons(25601+iPort);
+          atmSent[i] = _pTimer->GetHighPrecisionTimer().GetSeconds();
+          if (sendto(sock, "\\status\\", 8, 0, (sockaddr *)&sin, sizeof(sin))<0
+           && (errno==EWOULDBLOCK || errno==EAGAIN || errno==ENOBUFS)) {
+            // no room: take answers for a moment, then once more
+            _IOSLan_Receive(sock, aubFound, atmSent, 0.02);
+            sendto(sock, "\\status\\", 8, 0, (sockaddr *)&sin, sizeof(sin));
+          }
+          // (a few at a time, taking answers meanwhile)
+          if (++ctSent%32==0) {
+            _IOSLan_Receive(sock, aubFound, atmSent, 0.003);
+          }
+        }
+      }
+      _IOSLan_Receive(sock, aubFound, atmSent, iRound==0 ? 0.5 : 1.5);
+    }
+    closesocket(sock);
+    for (INDEX i=0; i<_ctIOSLan; i++) {
+      for (INDEX iPort=0; iPort<IOSLAN_PORTS; iPort++) {
+        ctFound += (aubFound[i]>>iPort)&1;
+      }
+    }
+  }
+  CPrintF("LAN search: %d addresses asked, %d games found\n", _ctIOSLan, ctFound);
+  pthread_mutex_lock(&_mxIOSLan);
+  _bIOSLanEnded = TRUE;
+  _bIOSLanBusy = FALSE;
+  pthread_mutex_unlock(&_mxIOSLan);
+  return NULL;
+}
+#endif
+
+#ifdef PLATFORM_WIN32
+DWORD WINAPI _LocalNet_Thread(LPVOID lpParam) {
+""", "static void *_IOSLan_Thread(void *pArg)\n{\n")
+    # A server answers a LAN search on its query socket, which was only made
+    # once the internet master server's name was found: with no internet (or
+    # that name gone) nobody on the Wi-Fi saw the game. Carry on without it.
+    sub(p, """    CPrintF("[%s] Couldn't resolve GameAgent server %s.\\n", _datetime, (const char *) ga_strServer);
+    _uninitWinsock();
+    return;
+  }
+""", """    CPrintF("[%s] Couldn't resolve GameAgent server %s.\\n", _datetime, (const char *) ga_strServer);
+#if !(defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG))
+    _uninitWinsock();
+    return;
+#endif
+  }
+""", "#if !(defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG))\n    _uninitWinsock();")
+    sub(p, "  _sin->sin_addr.s_addr = *(ULONG*)phe->h_addr_list[0];\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // (no master server found: games are still found on the local network,
+  // and the heartbeats go to this device, where nothing listens for them)
+  _sin->sin_addr.s_addr = (phe != NULL) ? *(ULONG*)phe->h_addr_list[0] : htonl(INADDR_LOOPBACK);
+#else
+  _sin->sin_addr.s_addr = *(ULONG*)phe->h_addr_list[0];
+#endif
+""", "(phe != NULL) ? *(ULONG*)phe->h_addr_list[0] : htonl(INADDR_LOOPBACK)")
+
+    # ------------------------------------------- multiplayer: player IDs
+    # A new player's ID came from rand(), never seeded: every copy of the app
+    # made the same IDs, and a second phone joining a game was turned away
+    # ("Player character already exists in this session").
+    p = src / "Engine/Entities/PlayerCharacter.cpp"
+    sub(p, """    // !!! FIXME : rcg10112001 Is this sufficient for these purposes?
+    for (int i = 0; i < 16; i++)
+        aub[i] = (UBYTE) (255.0 * rand() / (RAND_MAX + 1.0));
+""", """#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (each copy of the app its own: rand() is never seeded)
+    arc4random_buf(aub, 16);
+#else
+    // !!! FIXME : rcg10112001 Is this sufficient for these purposes?
+    for (int i = 0; i < 16; i++)
+        aub[i] = (UBYTE) (255.0 * rand() / (RAND_MAX + 1.0));
+#endif
+""", "    arc4random_buf(aub, 16);\n")
+    # The players made so far keep their IDs: a saved game finds its player
+    # by them. Instead, joining someone else's game, each copy of the app
+    # sends its players' IDs mixed with a key of its own (made once, kept in
+    # Players\NetKey.txt), the same every time it joins.
+    p = src / "GameMP/Game.cpp"
+    sub(p, '#include "IOSPhotoCam.h"\n#endif\n', '#include "IOSPhotoCam.h"\nstatic void IOS_NetCharacter(CPlayerCharacter &pc);\n#endif\n',
+        "static void IOS_NetCharacter(CPlayerCharacter &pc);\n")
+    sub(p, "BOOL CGame::AddPlayers(void)\n{\n", """#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// A player as sent into someone else's game: its ID mixed with this copy of
+// the app's key (every copy made the same IDs from rand(), never seeded, and
+// a second phone joining was turned away as a player already in the game)
+static void IOS_NetCharacter(CPlayerCharacter &pc)
+{
+  static UBYTE aubKey[PLAYERGUIDSIZE];
+  static BOOL bKey = FALSE;
+  if (!bKey) {
+    const CTFileName fnmKey = CTString("Players\\\\NetKey.txt");
+    CTString strKey;
+    BOOL bRead = FALSE;
+    if (FileExists(fnmKey)) {
+      LoadStringVar(fnmKey, strKey);
+      bRead = TRUE;
+      for (INDEX i=0; i<PLAYERGUIDSIZE && bRead; i++) {
+        unsigned int uByte = 0;
+        bRead = (strlen(strKey)>=(size_t)(i*2+2) && sscanf(((const char *)strKey)+i*2, "%2x", &uByte)==1);
+        aubKey[i] = (UBYTE)uByte;
+      }
+    }
+    if (!bRead) {
+      arc4random_buf(aubKey, PLAYERGUIDSIZE);
+      strKey = "";
+      for (INDEX i=0; i<PLAYERGUIDSIZE; i++) {
+        strKey += CTString(0, "%02x", (int)aubKey[i]);
+      }
+      strKey += "\\n";
+      SaveStringVar(fnmKey, strKey);
+    }
+    bKey = TRUE;
+  }
+  for (INDEX i=0; i<PLAYERGUIDSIZE; i++) {
+    pc.pc_aubGUID[i] ^= aubKey[i];
+  }
+}
+#endif
+
+BOOL CGame::AddPlayers(void)
+{
+""", "static void IOS_NetCharacter(CPlayerCharacter &pc)\n{\n")
+    sub(p, """        lp.lp_pplsPlayerSource = _pNetwork->AddPlayer_t(gm_apcPlayers[iPlayer]);
+""", """#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+        // (joining someone else's game: the ID with this copy's key)
+        CPlayerCharacter pcIOS = gm_apcPlayers[iPlayer];
+        if (!_pNetwork->IsServer()) {
+          IOS_NetCharacter(pcIOS);
+        }
+        lp.lp_pplsPlayerSource = _pNetwork->AddPlayer_t(pcIOS);
+#else
+        lp.lp_pplsPlayerSource = _pNetwork->AddPlayer_t(gm_apcPlayers[iPlayer]);
+#endif
+""", "        CPlayerCharacter pcIOS = gm_apcPlayers[iPlayer];\n")
+    sub(p, """        // demand change in game
+        lp.lp_pplsPlayerSource->ChangeCharacter(pcConfig);
+""", """        // demand change in game
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+        // (with the ID it joined with)
+        CPlayerCharacter pcIOS = pcConfig;
+        if (!_pNetwork->IsServer()) {
+          IOS_NetCharacter(pcIOS);
+        }
+        lp.lp_pplsPlayerSource->ChangeCharacter(pcIOS);
+#else
+        lp.lp_pplsPlayerSource->ChangeCharacter(pcConfig);
+#endif
+""", "        lp.lp_pplsPlayerSource->ChangeCharacter(pcIOS);\n")
+
+    # ------------------------------------- multiplayer: the touch controls
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, """  // gameplay controls only while a single-player game is being played; in
+  // menus, NETRICSA, demos and the intro touches are mouse clicks
+""", """  // gameplay controls while a game is being played, alone or in a network
+  // game (hosted or joined; not split screen); in menus, NETRICSA, demos
+  // and the intro touches are mouse clicks
+""", "alone or in a network\n")
+    sub(p, "  if (_gmRunningGameMode==GM_SINGLE_PLAYER && _pGame->gm_bGameOn && !bMenuActive && !bMenuRendering && !bComputer) {\n",
+           "  if ((_gmRunningGameMode==GM_SINGLE_PLAYER || _gmRunningGameMode==GM_NETWORK) && _pGame->gm_bGameOn && !bMenuActive && !bMenuRendering && !bComputer) {\n",
+           "  if ((_gmRunningGameMode==GM_SINGLE_PLAYER || _gmRunningGameMode==GM_NETWORK) && _pGame->gm_bGameOn")
+    sub(p, "  IOS_GetHudState(&hud);\n", """  IOS_GetHudState(&hud);
+  // a network game: no selfies or Action Freeze (they pose the world), and
+  // QUICK SAVE / QUICK LOAD only for the host of a cooperative one (whose
+  // quick load restarts it for everyone, as on PC)
+  hud.bNetwork = (_gmRunningGameMode==GM_NETWORK);
+  hud.bNoSaves = hud.bNetwork && !(_pNetwork->IsServer()
+    && ((const CSessionProperties *)_pNetwork->GetSessionProperties())->sp_bCooperative);
+""", "  hud.bNetwork = (_gmRunningGameMode==GM_NETWORK);\n")
+    sub(p, "  if ((iRequests&IOSTOUCH_REQ_QUICKSAVE) && iMode==IOSTOUCH_GAMEPLAY) {\n",
+           "  if ((iRequests&IOSTOUCH_REQ_QUICKSAVE) && iMode==IOSTOUCH_GAMEPLAY && !hud.bNoSaves) {\n",
+           "(iRequests&IOSTOUCH_REQ_QUICKSAVE) && iMode==IOSTOUCH_GAMEPLAY && !hud.bNoSaves")
+    sub(p, "  if ((iRequests&IOSTOUCH_REQ_QUICKLOAD) && iMode==IOSTOUCH_GAMEPLAY) {\n",
+           "  if ((iRequests&IOSTOUCH_REQ_QUICKLOAD) && iMode==IOSTOUCH_GAMEPLAY && !hud.bNoSaves) {\n",
+           "(iRequests&IOSTOUCH_REQ_QUICKLOAD) && iMode==IOSTOUCH_GAMEPLAY && !hud.bNoSaves")
+    # where others join a game this phone hosts, as it starts; and the iOS
+    # keyboard for a menu's text field
+    sub(p, """    IOS_MarkAllMessagesRead();  // the HUD's messages box stops blinking (and dims)
+  }
+}
+#endif
+""", """    IOS_MarkAllMessagesRead();  // the HUD's messages box stops blinking (and dims)
+  }
+
+  // iOS asks for Local Network access once: as the network menus open, before any search
+  extern CNetworkMenu gmNetworkMenu;
+  extern CNetworkJoinMenu gmNetworkJoinMenu;
+  extern CNetworkStartMenu gmNetworkStartMenu;
+  static BOOL bAskedLocalNetwork = FALSE;
+  if (!bAskedLocalNetwork && bMenuActive && (pgmCurrentMenu==&gmNetworkMenu || pgmCurrentMenu==&gmNetworkJoinMenu
+      || pgmCurrentMenu==&gmNetworkStartMenu)) {
+    bAskedLocalNetwork = TRUE;
+    IOSNet_AskLocalNetwork();
+  }
+
+  static BOOL bWasHosting = FALSE;
+  const BOOL bHosting = _gmRunningGameMode==GM_NETWORK && _pGame->gm_bGameOn && _pNetwork->IsServer();
+  if (bHosting && !bWasHosting) {
+    char strAddress[64];
+    CTString strMessage;
+    if (IOSNet_LocalAddress(strAddress, sizeof(strAddress))) {
+      const INDEX iPort = _pShell->GetINDEX("net_iPort");
+      if (iPort!=25600) {
+        snprintf(strAddress+strlen(strAddress), sizeof(strAddress)-strlen(strAddress), ":%d", (int)iPort);
+      }
+      strMessage.PrintF(TRANS("Others join at %s (or SEARCH LAN)"), strAddress);
+    } else {
+      strMessage = TRANS("Not on Wi-Fi: others on Wi-Fi can't join");
+    }
+    CPrintF("%s\\n", (const char *)strMessage);
+    IOSTouch_ShowMessage((const char *)strMessage, 10.0);
+    IOSNet_AskLocalNetwork(); // (and asks now, not as the first player joins)
+  }
+  bWasHosting = bHosting;
+
+  extern BOOL _bEditingString;
+  extern FLOAT _fIOSEditTop, _fIOSEditBottom;
+  IOSTouch_MenuKeyboard(_hwndMain, bMenuActive && _bEditingString, _fIOSEditTop, _fIOSEditBottom);
+}
+#endif
+""", "IOSTouch_MenuKeyboard(_hwndMain, bMenuActive && _bEditingString")
+    sub(p, '#include "IOSTouch.h"\n#endif\n', '#include "IOSTouch.h"\n#include "IOSNet.h"\n#endif\n', '#include "IOSNet.h"')
+    # A LAN or internet search only went on while no game ran at all, but the
+    # intro level runs behind the menu: SEARCH LAN never found anything (nor
+    # from the menu during a game).
+    sub(p, """  if( _gmRunningGameMode != GM_NONE) {
+    _pGame->GameMainLoop();
+  // if game is not started
+""", """  if( _gmRunningGameMode != GM_NONE) {
+    _pGame->GameMainLoop();
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (the intro level behind the menu, or a game: server searches go on)
+    extern void GameAgent_EnumUpdate(void);
+    GameAgent_EnumUpdate();
+#endif
+  // if game is not started
+""", "    // (the intro level behind the menu, or a game: server searches go on)\n")
+
+    # -------------------------------------------- multiplayer: the menus
+    # Where the text field being typed into is, for the iOS keyboard to keep
+    # clear of (IOSTouch_MenuKeyboard)
+    p = src / "SeriousSam/Menu.cpp"
+    sub(p, """  // if editing
+  if (_bEditingString && pmgActive!=NULL) {
+    // dim the menu  bit
+    dpMenu.Fill(C_BLACK|0x40);
+    // render the edit gadget again
+    pmgActive->Render(&dpMenu);
+  }
+""", """  // if editing
+  if (_bEditingString && pmgActive!=NULL) {
+    // dim the menu  bit
+    dpMenu.Fill(C_BLACK|0x40);
+    // render the edit gadget again
+    pmgActive->Render(&dpMenu);
+#ifdef PLATFORM_IOS
+    // (where it is on the screen, as MenuOnTouchDown takes touches)
+    extern INDEX sam_bWideScreen;
+    const PIXaabbox2D boxIOSEdit = FloatBoxToPixBox(&dpMenu, pmgActive->mg_boxOnScreen);
+    const PIX pixIOSHeight = pdp->GetHeight();
+    const PIX pixIOSOffset = sam_bWideScreen ? (PIX) ((pixIOSHeight/0.75f-pixIOSHeight)/2) : 0;
+    _fIOSEditTop    = (boxIOSEdit.Min()(2)+pixIOSOffset) / (FLOAT)ClampDn(pixIOSHeight, (PIX)1);
+    _fIOSEditBottom = (boxIOSEdit.Max()(2)+pixIOSOffset) / (FLOAT)ClampDn(pixIOSHeight, (PIX)1);
+#endif
+  }
+""", "const PIXaabbox2D boxIOSEdit = FloatBoxToPixBox(&dpMenu, pmgActive->mg_boxOnScreen);")
+    sub(p, "static CTimerValue _tvInitialization;\n", """#ifdef PLATFORM_IOS
+// the text field being typed into, top and bottom: fractions of the screen's height
+FLOAT _fIOSEditTop = 0.0f, _fIOSEditBottom = 0.0f;
+
+// A finger lifts from the menu (the server list joins the server tapped)
+void MenuOnTouchUp(void)
+{
+  extern void IOS_ServerListTouchUp(CMGServerList *pmg, BOOL bJoin);
+  IOS_ServerListTouchUp(&mgServerList, pgmCurrentMenu==&gmServersMenu);
+}
+#endif
+static CTimerValue _tvInitialization;
+""", "void MenuOnTouchUp(void)\n{")
+    sub(p, "void MenuOnTouchDown(PIX pixI, PIX pixJ)\n{\n  extern CDrawPort *pdp;\n",
+"""void MenuOnTouchDown(PIX pixI, PIX pixJ)
+{
+  extern CDrawPort *pdp;
+  // (a finger that lifted somewhere else isn't still down on the server list)
+  extern void IOS_ServerListTouchUp(CMGServerList *pmg, BOOL bJoin);
+  IOS_ServerListTouchUp(&mgServerList, FALSE);
+""", "  IOS_ServerListTouchUp(&mgServerList, FALSE);\n")
+    p = src / "SeriousSam/Menu.h"
+    sub(p, "void MenuKeepSettings(void);\n#endif\n", "void MenuKeepSettings(void);\nvoid MenuOnTouchUp(void);\n#endif\n", "void MenuOnTouchUp(void);")
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, """        } else if (msg.message==WM_RBUTTONDOWN || msg.message==WM_RBUTTONDBLCLK) {
+          MenuOnKeyDown(VK_RBUTTON);
+        } else if (msg.message==WM_MOUSEMOVE) {
+          MenuOnMouseMove(LOWORD(msg.lParam), HIWORD(msg.lParam));
+""", """        } else if (msg.message==WM_RBUTTONDOWN || msg.message==WM_RBUTTONDBLCLK) {
+          MenuOnKeyDown(VK_RBUTTON);
+#ifdef PLATFORM_IOS
+        } else if (msg.message==WM_LBUTTONUP) {
+          MenuOnTouchUp();
+#endif
+        } else if (msg.message==WM_MOUSEMOVE) {
+          MenuOnMouseMove(LOWORD(msg.lParam), HIWORD(msg.lParam));
+""", "          MenuOnTouchUp();\n")
+    # The server list joined the server under a finger as it landed, so it
+    # couldn't be scrolled but by its thin scroll bar: now a server joins as
+    # the finger lifts from it, and dragging the list scrolls it.
+    p = src / "SeriousSam/MenuGadgets.cpp"
+    sub(p, "void CMGServerList::OnMouseOver(PIX pixI, PIX pixJ)\n{\n", """#ifdef PLATFORM_IOS
+// a finger down on the server list: where, and whether it has dragged it
+static BOOL _bIOSListPressed = FALSE;
+static BOOL _bIOSListDragged = FALSE;
+static CTString _strIOSListPressed;     // the server it landed on (rows move as a search finds more)
+static PIX _pixIOSListPressJ = 0;
+static INDEX _iIOSListPressFirst = 0;   // the first on screen then
+
+// The finger lifts: joins the server it landed on, unless it dragged (or
+// the list isn't showing: bJoin). Also as any finger lands on the menu, so
+// none is still taken as down on the list.
+void IOS_ServerListTouchUp(CMGServerList *pmg, BOOL bJoin)
+{
+  bJoin = bJoin && _bIOSListPressed && !_bIOSListDragged && _strIOSListPressed!="";
+  _bIOSListPressed = FALSE;
+  if (bJoin) {
+    INDEX i=0;
+    FOREACHINLIST(CNetworkSession, ns_lnNode, _lhServers, itns) {
+      if (itns->ns_strAddress==_strIOSListPressed) {
+        pmg->mg_iSelected = i;
+        pmg->OnKeyDown(VK_RETURN);
+        break;
+      }
+      i++;
+    }
+  }
+}
+#endif
+
+void CMGServerList::OnMouseOver(PIX pixI, PIX pixJ)
+{
+#ifdef PLATFORM_IOS
+  if (_bIOSListPressed) {
+    mg_pixMouseI = pixI;
+    mg_pixMouseJ = pixJ;
+    // a drag of half a line scrolls the list along with the finger
+    const PIX pixDrag = pixJ-_pixIOSListPressJ;
+    if (Abs(pixDrag)*2>mg_pixListStepJ) {
+      _bIOSListDragged = TRUE;
+    }
+    if (_bIOSListDragged && mg_pixListStepJ>0) {
+      const INDEX ctSessions = _lhServers.Count();
+      mg_iFirstOnScreen = Clamp(INDEX(_iIOSListPressFirst-pixDrag/mg_pixListStepJ), (INDEX)0, ClampDn(ctSessions-mg_ctOnScreen, (INDEX)0));
+      mg_iSelected = Clamp(mg_iSelected, mg_iFirstOnScreen, mg_iFirstOnScreen+mg_ctOnScreen-1);
+    }
+    return;
+  }
+#endif
+""", "void IOS_ServerListTouchUp(CMGServerList *pmg, BOOL bJoin)")
+    sub(p, """  case VK_RETURN:
+    PlayMenuSound(_psdPress);
+    IFeel_PlayEffect("Menu_press");
+    {INDEX i=0;
+""", """#ifdef PLATFORM_IOS
+    // (on a server: it joins as the finger lifts, unless it drags the list)
+    _bIOSListPressed = TRUE;
+    _bIOSListDragged = FALSE;
+    _strIOSListPressed = "";
+    {INDEX i=0;
+    FOREACHINLIST(CNetworkSession, ns_lnNode, _lhServers, itns) {
+      if (i==mg_iSelected) {
+        _strIOSListPressed = itns->ns_strAddress;
+      }
+      i++;
+    }}
+    _pixIOSListPressJ = mg_pixMouseJ;
+    _iIOSListPressFirst = mg_iFirstOnScreen;
+    break;
+#endif
+  case VK_RETURN:
+    PlayMenuSound(_psdPress);
+    IFeel_PlayEffect("Menu_press");
+    {INDEX i=0;
+""", "        _strIOSListPressed = itns->ns_strAddress;\n")
+    # The weapon wheel showed player 0's weapons: in a network game joined,
+    # someone else's
+    p = src / ("EntitiesMP/Common/HUD.cpp" if game == "SamTSE" else "Entities/Common/HUD.cpp")
+    sub(p, """  CPlayer *pl = (CPlayer *)CEntity::GetPlayerEntity(0);
+  if (pl==NULL || pl->m_penWeapons==NULL) return;
+  CPlayerWeapons *penOld = _penWeapons;
+""", """  // (this phone's player: in a network game, player 0 may be someone else's)
+  CPlayer *pl = NULL;
+  for (INDEX iIOSPlayer=0; iIOSPlayer<CEntity::GetMaxPlayers() && pl==NULL; iIOSPlayer++) {
+    CEntity *penIOSPlayer = CEntity::GetPlayerEntity(iIOSPlayer);
+    if (penIOSPlayer!=NULL && _pNetwork->IsPlayerLocal(penIOSPlayer)) {
+      pl = (CPlayer *)penIOSPlayer;
+    }
+  }
+  if (pl==NULL || pl->m_penWeapons==NULL) return;
+  CPlayerWeapons *penOld = _penWeapons;
+""", "  // (this phone's player: in a network game, player 0 may be someone else's)\n")
     print(game, "patched")

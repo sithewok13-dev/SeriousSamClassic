@@ -2692,6 +2692,9 @@ void MenuUpdateMouseFocus(void)
 void MenuOnTouchDown(PIX pixI, PIX pixJ)
 {
   extern CDrawPort *pdp;
+  // (a finger that lifted somewhere else isn't still down on the server list)
+  extern void IOS_ServerListTouchUp(CMGServerList *pmg, BOOL bJoin);
+  IOS_ServerListTouchUp(&mgServerList, FALSE);
   if (pgmCurrentMenu==NULL || pdp==NULL) return;
   POINT pt;
   pt.x = pixI;
@@ -2738,6 +2741,17 @@ void MenuKeepSettings(void)
 }
 #endif
 
+#ifdef PLATFORM_IOS
+// the text field being typed into, top and bottom: fractions of the screen's height
+FLOAT _fIOSEditTop = 0.0f, _fIOSEditBottom = 0.0f;
+
+// A finger lifts from the menu (the server list joins the server tapped)
+void MenuOnTouchUp(void)
+{
+  extern void IOS_ServerListTouchUp(CMGServerList *pmg, BOOL bJoin);
+  IOS_ServerListTouchUp(&mgServerList, pgmCurrentMenu==&gmServersMenu);
+}
+#endif
 static CTimerValue _tvInitialization;
 static TIME _tmInitializationTick = -1;
 extern TIME _tmMenuLastTickDone;
@@ -3013,6 +3027,15 @@ BOOL DoMenu( CDrawPort *pdp)
     dpMenu.Fill(C_BLACK|0x40);
     // render the edit gadget again
     pmgActive->Render(&dpMenu);
+#ifdef PLATFORM_IOS
+    // (where it is on the screen, as MenuOnTouchDown takes touches)
+    extern INDEX sam_bWideScreen;
+    const PIXaabbox2D boxIOSEdit = FloatBoxToPixBox(&dpMenu, pmgActive->mg_boxOnScreen);
+    const PIX pixIOSHeight = pdp->GetHeight();
+    const PIX pixIOSOffset = sam_bWideScreen ? (PIX) ((pixIOSHeight/0.75f-pixIOSHeight)/2) : 0;
+    _fIOSEditTop    = (boxIOSEdit.Min()(2)+pixIOSOffset) / (FLOAT)ClampDn(pixIOSHeight, (PIX)1);
+    _fIOSEditBottom = (boxIOSEdit.Max()(2)+pixIOSOffset) / (FLOAT)ClampDn(pixIOSHeight, (PIX)1);
+#endif
   }
   
   // if there is some active gadget and it has tips

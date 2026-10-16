@@ -13,6 +13,11 @@ reads everything on a phone.
   the Jedi Knight port) is `IOSCapture.c`, `IOSPhotos.m`, `IOSSelfieShots.c` (with
   the overlay) and `IOSPhotoCam`, `IOSSelfie`, `IOSStance`, `IOSFreeze`, `IOSCinema`
   (`.cpp`, in the game library).
+  MULTIPLAYER is the games' own (Network menu): `IOSNet.c` (the phone's Wi-Fi
+  address, the addresses SEARCH LAN asks) and hunks in `GameAgent.cpp` (LAN search
+  asks every address on the Wi-Fi, no broadcasts), the menus (iOS keyboard for text
+  fields, tap-to-join server list) and player IDs (mixed with a per-install key
+  when joining someone else's game; saves keep the stored IDs).
   `ios_app.cmake` sets names, bundle ids and icons. `RELEASE_NOTES.md` is the
   release text and full player guide.
 - **CI:** `.github/workflows/ios.yml` (`RELEASE_IPAS`, `RELEASE_TITLE`).
@@ -67,6 +72,9 @@ reads everything on a phone.
     open (music plays on); a haptic tick per slice.
   - Envelope: tap = mark read, hold = NETRICSA. USE never opens NETRICSA. BOMB shows
     the bomb count. No corner ammo row.
+  - Network games: the same controls, except QUICK SAVE / QUICK LOAD (only for the
+    host of a co-op game), and nothing holds the game still (wheel, menu). Selfies and
+    Action Freeze are single player only; photos work.
   - HUD clear of the corners, the notch or Dynamic Island, and the home bar. Don't
     move the right-hand buttons closer to the edge for now (the owner's request).
 - **Testing:** a real-engine Linux rig (real data, local only; real overlay on a

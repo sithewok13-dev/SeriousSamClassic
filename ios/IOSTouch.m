@@ -873,6 +873,7 @@ static float _fCameraRing = 0.0f, _fCamSwitchRing = 0.0f; // (and the tray's CAM
 static int _bPhotosAsking = 0, _bAskPhotos = 0;
 static char _strCamMessage[192] = "";
 static double _tCamMessage = -1.0e9;
+static double _fCamMessageTime = IOSTOUCH_CAMERA_MESSAGE_TIME; // how long it shows
 static double _fViewH = 0.0;
 // Action Freeze: the moves still to make (degrees round, fractions of the
 // view's height across and down, zoom as a log) and their first smoothing
@@ -947,6 +948,7 @@ static int IOSTouch_IsShown(int button)
   if (button == BTN_ZOOM) return _hud.bValid && _hud.bSniper;
   if (button == BTN_BOMB) return _hud.bValid && _hud.ctBombs > 0;
   if (button == BTN_CAMERA) return _bShowCamera;
+  if (button == BTN_QUICKSAVE || button == BTN_QUICKLOAD) return !_hud.bNoSaves;
   if (button >= BTN_TRAYSENS && button <= BTN_TRAYKEYS) return _bTrayOpen;
   if (button >= BTN_CAMROW_PHOTO && button <= BTN_CAMROW_FREEZE) return _bTrayOpen && _bCamRowOpen;
   if (button >= BTN_CAMOPT_CLEAN && button <= BTN_CAMOPT_BTNS) return _bTrayOpen && _bCamRowOpen && _bCamKindsOpen;
@@ -1135,8 +1137,15 @@ static void IOSTouch_SetShowFps(int bShow)
 
 void IOS_ShowCameraMessage(const char *str)
 {
+  IOSTouch_ShowMessage(str, IOSTOUCH_CAMERA_MESSAGE_TIME);
+}
+
+// (the same line, for other news: where others join a game hosted here)
+void IOSTouch_ShowMessage(const char *str, double fSeconds)
+{
   snprintf(_strCamMessage, sizeof(_strCamMessage), "%s", str ? str : "");
   _tCamMessage = CACurrentMediaTime();
+  _fCamMessageTime = fSeconds;
 }
 
 // Lets go of every touch but s (it carries on as it is): they are ignored
@@ -1203,7 +1212,8 @@ static int IOSTouch_StartSelfie(double now)
     return 0;
   }
   if (r != IOSSELFIESHOTS_STARTED) {
-    IOS_ShowCameraMessage("Can't take a selfie here");
+    // (they pose the world, which can't be done in a game others share)
+    IOS_ShowCameraMessage(_hud.bNetwork ? "Selfies are for single player" : "Can't take a selfie here");
     return 0;
   }
   _iCamStage = CAM_SELFIE;
@@ -1216,7 +1226,7 @@ static void IOSTouch_StartFreeze(void)
   IOSTouch_EndBurst();
   IOSCapture_Cancel(); // (a photo not taken yet would be of the frozen view)
   if (!IOSFreeze_Begin()) {
-    IOS_ShowCameraMessage("Can't freeze here");
+    IOS_ShowCameraMessage(_hud.bNetwork ? "Action Freeze is for single player" : "Can't freeze here");
     return;
   }
   IOSFreeze_SetSmooth(1);
@@ -1246,7 +1256,7 @@ static void IOSTouch_StartCinema(double now)
     return;
   }
   if (r != IOSCINEMA_STARTED) {
-    IOS_ShowCameraMessage("Can't freeze here");
+    IOS_ShowCameraMessage(_hud.bNetwork ? "Action Freeze is for single player" : "Can't freeze here");
     return;
   }
   _iCamStage = CAM_CINEMA;
@@ -3575,7 +3585,7 @@ static UIView *IOSTouch_MakeRowBack(void)
   if (freezeClose.hidden == bClose) freezeClose.hidden = !bClose;
 
   const double now = CACurrentMediaTime();
-  const int bMessage = _strCamMessage[0] && now - _tCamMessage < IOSTOUCH_CAMERA_MESSAGE_TIME
+  const int bMessage = _strCamMessage[0] && now - _tCamMessage < _fCamMessageTime
                        && (_iCamStage == CAM_NONE || _iCamStage == CAM_FREEZE);
   if (bMessage && tCamMessageShown != _tCamMessage) {
     tCamMessageShown = _tCamMessage;
@@ -4175,7 +4185,8 @@ static CGImageRef IOSTouch_MakeIconImage(const unsigned char *pub, int w, int h)
     l.font = [UIFont boldSystemFontOfSize:IOSTouch_FontSize(str, _aButtons[BTN_BOMB].radius)];
   }
   // ZOOM and BOMB come and go, the tray opens, the readout counts
-  const int iCamNow = _iCamStage * 64 + _bCamRowOpen * 2 + _bCamKindsOpen + (_pBurstTouch != NULL) * 4 + _bShowCamera * 8;
+  const int iCamNow = _iCamStage * 64 + _bCamRowOpen * 2 + _bCamKindsOpen + (_pBurstTouch != NULL) * 4 + _bShowCamera * 8
+                     + (_hud.bNoSaves != 0) * 16;
   if (aButtonViews[BTN_ZOOM].hidden == IOSTouch_IsShown(BTN_ZOOM) || aButtonViews[BTN_BOMB].hidden == IOSTouch_IsShown(BTN_BOMB)
       || _bTrayOpen != bTrayWasOpen || _iFpsShown != iFpsWas || iCamNow != iCamWas) {
     [self refreshButtonLooks];
@@ -4279,6 +4290,55 @@ static void IOSTouch_KeepConsoleKeyboard(SDL_Window *pWindow)
   SDL_StartTextInput();
 }
 
+// A menu's text field being typed into (a server's address, a player's
+// name): the iOS keyboard, asked for again as the console's is. SDL slides
+// the screen up so the field's rect stays above the keyboard; an empty rect
+// (the console's) moves nothing.
+static int _bMenuTyping = 0;
+
+void IOSTouch_MenuKeyboard(void *pSDLWindow, int bTyping, float fTop, float fBottom)
+{
+  SDL_Window *pWindow = (SDL_Window *)pSDLWindow;
+  static SDL_Rect rSet = { 0, 0, 0, 0 };
+  static double tAsked = 0.0;
+  if (pWindow == NULL) return;
+  SDL_Rect r = { 0, 0, 0, 0 };
+  if (bTyping && _iMode != IOSTOUCH_CONSOLE) {
+    int w = 0, h = 0;
+    SDL_GetWindowSize(pWindow, &w, &h); // (points)
+    r.x = 0;
+    r.w = w;
+    r.y = (int)floorf(fTop * h);
+    r.h = (int)ceilf((fBottom - fTop) * h) + 8; // (and a little under it)
+  }
+  if (memcmp(&r, &rSet, sizeof(r)) != 0) {
+    rSet = r;
+    SDL_SetTextInputRect(&r);
+  }
+  if (bTyping && _iMode != IOSTOUCH_CONSOLE) {
+    const double now = CACurrentMediaTime();
+    if (!_bMenuTyping) {
+      _bMenuTyping = 1;
+      tAsked = now;
+      SDL_StartTextInput();
+    }
+    else if (!SDL_IsScreenKeyboardShown(pWindow) && now - tAsked >= 0.5
+             && [UIApplication sharedApplication].applicationState == UIApplicationStateActive) {
+      tAsked = now;
+      SDL_StartTextInput();
+      SDL_SetTextInputRect(&rSet); // (dropped if no window had the focus when it was set)
+    }
+  }
+  else if (_bMenuTyping) {
+    _bMenuTyping = 0;
+    if (_iMode != IOSTOUCH_CONSOLE) {
+      // (hiding it stops SDL's text events, which a hardware keyboard types with)
+      SDL_StopTextInput();
+      SDL_EventState(SDL_TEXTINPUT, SDL_ENABLE);
+    }
+  }
+}
+
 static int IOSTouch_UpdateOverlay(void *pSDLWindow, int iMode, const IOSTouchHud *pHud, unsigned int ulFramesDrawn)
 {
   // what was asked for since the last frame (the main loop checks it still fits)
@@ -4301,7 +4361,9 @@ static int IOSTouch_UpdateOverlay(void *pSDLWindow, int iMode, const IOSTouchHud
   UIView *host = IOSTouch_GetHostView((SDL_Window *)pSDLWindow);
   // the HUD's frame, from the game's view: also while the overlay hides (the
   // HUD shows in demos too) and before it exists
-  if (host) {
+  // (not while a menu's text field slides the view up for the keyboard: the
+  // safe area moves with it)
+  if (host && !_bMenuTyping) {
     const UIEdgeInsets in = host.safeAreaInsets;
     IOSTouch_SetHudFrame(host.bounds.size.width, host.bounds.size.height, in.left, in.top, in.right, in.bottom);
   }

@@ -159,6 +159,22 @@ BOOL _bServer = FALSE;
 BOOL _bInitialized = FALSE;
 BOOL _bActivated = FALSE;
 BOOL _bActivatedLocal = FALSE;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+#include "IOSNet.h"
+// SEARCH LAN on a phone: the addresses on its Wi-Fi, and the query ports
+// (game port + 1) of game ports 25600..25604
+#define IOSLAN_MAX   1024
+#define IOSLAN_PORTS 5
+#define IOSLAN_FOUND 64
+static unsigned int _aulIOSLan[IOSLAN_MAX];
+static int _ctIOSLan = 0;
+static volatile BOOL _bIOSLanBusy = FALSE;  // a search is running (main thread starts it, the thread ends it)
+static pthread_mutex_t _mxIOSLan = PTHREAD_MUTEX_INITIALIZER;
+static CNetworkSession *_apnsIOSLan[IOSLAN_FOUND];  // found, for the main thread to list
+static INDEX _ctIOSLanFound = 0;
+static BOOL _bIOSLanEnded = FALSE;  // the thread has ended: the main thread says so
+static void *_IOSLan_Thread(void *pArg);
+#endif
 
 TIME _tmLastHeartbeat = 0;
 char _datetime[128] = {0};
@@ -314,8 +330,10 @@ void _initializeWinsock(void)
     // report and stop
     DateTime(_datetime);
     CPrintF("[%s] Couldn't resolve GameAgent server %s.\n", _datetime, (const char *) ga_strServer);
+#if !(defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG))
     _uninitWinsock();
     return;
+#endif
   }
   #endif
   
@@ -325,7 +343,13 @@ void _initializeWinsock(void)
   #ifdef PLATFORM_FREEBSD
   _sin->sin_addr.s_addr = inet_addr("116.202.216.176");  // 42amsterdam.net = 116.202.216.176
   #else
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  // (no master server found: games are still found on the local network,
+  // and the heartbeats go to this device, where nothing listens for them)
+  _sin->sin_addr.s_addr = (phe != NULL) ? *(ULONG*)phe->h_addr_list[0] : htonl(INADDR_LOOPBACK);
+#else
   _sin->sin_addr.s_addr = *(ULONG*)phe->h_addr_list[0];
+#endif
   #endif
   
   if(!ga_bMSLegacy) {
@@ -837,6 +861,24 @@ extern void GameAgent_EnumTrigger(BOOL bInternet)
   }
   
   if ( !bInternet && ga_bMSLegacy) {
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (a phone: a thread of its own asks every address on its Wi-Fi; a
+    // search already running goes on and lists what it finds)
+    if (_bIOSLanBusy) {
+      return;
+    }
+    _ctIOSLan = IOSNet_LanTargets(_aulIOSLan, IOSLAN_MAX);
+    _bIOSLanBusy = TRUE;
+    _pNetwork->ga_strEnumerationStatus = ".";
+    pthread_t thIOSLan;
+    if (pthread_create(&thIOSLan, NULL, _IOSLan_Thread, NULL)==0) {
+      pthread_detach(thIOSLan);
+    } else {
+      _bIOSLanBusy = FALSE;
+      _pNetwork->ga_strEnumerationStatus = "";
+    }
+    return;
+#endif
     // make sure that there are no requests still stuck in buffer
     ga_asrRequests.Clear();
     // we're not a server
@@ -1312,6 +1354,19 @@ if (SOCKET_ERROR == ioctlsocket(_sock, FIONBIO, (unsigned long*)&l2))
 /// GameAgent client update for enumerations.
 extern void GameAgent_EnumUpdate(void)
 {
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  pthread_mutex_lock(&_mxIOSLan);
+  for (INDEX iFound=0; iFound<_ctIOSLanFound; iFound++) {
+    _pNetwork->ga_lhEnumeratedSessions.AddTail(_apnsIOSLan[iFound]->ns_lnNode);
+  }
+  _ctIOSLanFound = 0;
+  if (_bIOSLanEnded) {
+    _bIOSLanEnded = FALSE;
+    _pNetwork->ga_bEnumerationChange = FALSE;
+    _pNetwork->ga_strEnumerationStatus = "";
+  }
+  pthread_mutex_unlock(&_mxIOSLan);
+#endif
   if((_socket == INVALID_SOCKET) || (!_bInitialized)) {
     return;
   }
@@ -1738,6 +1793,152 @@ void*        _MS_Thread(void *arg) {
     WSACleanup();
     return 0;
 }
+
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// One server's answer to \status\ (\key\value pairs), for the server list
+static void _IOSLan_AddServer(char *szReply, const sockaddr_in &sinFrom, DOUBLE tmPing)
+{
+  CTString strPlayers, strMaxPlayers, strLevel, strGameType, strVersion, strGameName, strSessionName, strActiveMod;
+  char *pch = szReply;
+  while (*pch=='\\') {
+    char *pchKey = pch+1;
+    char *pchValue = strchr(pchKey, '\\');
+    if (pchValue==NULL) break;
+    *pchValue++ = 0;
+    char *pchNext = strchr(pchValue, '\\');
+    if (pchNext!=NULL) *pchNext = 0;
+    const CTString strValue = pchValue;
+    if      (!strcmp(pchKey, "gamename"))   strGameName = strValue;
+    else if (!strcmp(pchKey, "gamever"))    strVersion = strValue;
+    else if (!strcmp(pchKey, "hostname"))   strSessionName = strValue;
+    else if (!strcmp(pchKey, "mapname"))    strLevel = strValue;
+    else if (!strcmp(pchKey, "gametype"))   strGameType = strValue;
+    else if (!strcmp(pchKey, "activemod"))  strActiveMod = strValue;
+    else if (!strcmp(pchKey, "numplayers")) strPlayers = strValue;
+    else if (!strcmp(pchKey, "maxplayers")) strMaxPlayers = strValue;
+    if (pchNext==NULL) break;
+    *pchNext = '\\';
+    pch = pchNext;
+  }
+  if (strActiveMod!="") {
+    strGameName = strActiveMod;
+  }
+  CNetworkSession *pns = new CNetworkSession;
+  pns->ns_strSession = strSessionName;
+  pns->ns_strAddress = inet_ntoa(sinFrom.sin_addr) + CTString(":") + CTString(0, "%d", ntohs(sinFrom.sin_port) - 1);
+  pns->ns_tmPing = tmPing;
+  pns->ns_strWorld = strLevel;
+  pns->ns_ctPlayers = atoi(strPlayers);
+  pns->ns_ctMaxPlayers = atoi(strMaxPlayers);
+  pns->ns_strGameType = strGameType;
+  pns->ns_strMod = strGameName;
+  pns->ns_strVer = strVersion;
+  pthread_mutex_lock(&_mxIOSLan);
+  if (_ctIOSLanFound<IOSLAN_FOUND) {
+    _apnsIOSLan[_ctIOSLanFound++] = pns;
+    pns = NULL;
+  }
+  pthread_mutex_unlock(&_mxIOSLan);
+  delete pns;  // (the list for the menu is full)
+}
+
+// Takes the answers that come in for tmWait seconds: each server once
+static void _IOSLan_Receive(SOCKET sock, UBYTE *aubFound, const DOUBLE *atmSent, DOUBLE tmWait)
+{
+  #ifdef FIRST_ENCOUNTER
+  const char *strGame = "\\gamename\\serioussam\\";
+  #else
+  const char *strGame = "\\gamename\\serioussamse\\";
+  #endif
+  const DOUBLE tmEnd = _pTimer->GetHighPrecisionTimer().GetSeconds() + tmWait;
+  for (;;) {
+    const DOUBLE tmLeft = tmEnd - _pTimer->GetHighPrecisionTimer().GetSeconds();
+    if (tmLeft<=0) break;
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(sock, &fds);
+    struct timeval tv;
+    tv.tv_sec = (long)tmLeft;
+    tv.tv_usec = (long)((tmLeft-tv.tv_sec)*1000000.0);
+    if (select(sock+1, &fds, NULL, NULL, &tv)<=0) break;
+    char szReply[2050];
+    sockaddr_in sinFrom;
+    socklen_t slFrom = sizeof(sinFrom);
+    const int iLen = recvfrom(sock, szReply, 2048, 0, (sockaddr *)&sinFrom, &slFrom);
+    if (iLen<=100) continue;
+    szReply[iLen] = 0;
+    if (strstr(szReply, strGame)==NULL) continue;
+    const INDEX iPort = ntohs(sinFrom.sin_port) - 25601;
+    if (iPort<0 || iPort>=IOSLAN_PORTS) continue;
+    for (INDEX i=0; i<_ctIOSLan; i++) {
+      if (_aulIOSLan[i]!=sinFrom.sin_addr.s_addr) continue;
+      if (!(aubFound[i]&(1<<iPort))) {
+        aubFound[i] |= (1<<iPort);
+        _IOSLan_AddServer(szReply, sinFrom, _pTimer->GetHighPrecisionTimer().GetSeconds()-atmSent[i]);
+      }
+      break;
+    }
+  }
+}
+
+static void *_IOSLan_Thread(void *pArg)
+{
+  static UBYTE aubFound[IOSLAN_MAX];  // bit p: query port 25601+p answered
+  static DOUBLE atmSent[IOSLAN_MAX];
+  memset(aubFound, 0, sizeof(aubFound));
+  INDEX ctFound = 0;
+  SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sock!=INVALID_SOCKET) {
+    int iBuffer = 256*1024;
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (const char *)&iBuffer, sizeof(iBuffer));
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (const char *)&iBuffer, sizeof(iBuffer));
+    // (packets to addresses nobody has wait in the send buffer for a while:
+    // never wait for room, and stop sending after 4 seconds)
+    fcntl(sock, F_SETFL, fcntl(sock, F_GETFL)|O_NONBLOCK);
+    const DOUBLE tmStopSending = _pTimer->GetHighPrecisionTimer().GetSeconds() + 4.0;
+    INDEX ctSent = 0;
+    // the default port everywhere first: a first packet to an address waits
+    // while the phone finds it on the Wi-Fi, more of them may be dropped
+    for (INDEX iRound=0; iRound<2; iRound++) {
+      for (INDEX i=0; i<_ctIOSLan; i++) {
+        for (INDEX iPort=0; iPort<(iRound==0 ? 1 : IOSLAN_PORTS); iPort++) {
+          if (aubFound[i]&(1<<iPort)) continue;
+          if (_pTimer->GetHighPrecisionTimer().GetSeconds()>tmStopSending) break;
+          sockaddr_in sin;
+          memset(&sin, 0, sizeof(sin));
+          sin.sin_family = AF_INET;
+          sin.sin_addr.s_addr = _aulIOSLan[i];
+          sin.sin_port = htons(25601+iPort);
+          atmSent[i] = _pTimer->GetHighPrecisionTimer().GetSeconds();
+          if (sendto(sock, "\\status\\", 8, 0, (sockaddr *)&sin, sizeof(sin))<0
+           && (errno==EWOULDBLOCK || errno==EAGAIN || errno==ENOBUFS)) {
+            // no room: take answers for a moment, then once more
+            _IOSLan_Receive(sock, aubFound, atmSent, 0.02);
+            sendto(sock, "\\status\\", 8, 0, (sockaddr *)&sin, sizeof(sin));
+          }
+          // (a few at a time, taking answers meanwhile)
+          if (++ctSent%32==0) {
+            _IOSLan_Receive(sock, aubFound, atmSent, 0.003);
+          }
+        }
+      }
+      _IOSLan_Receive(sock, aubFound, atmSent, iRound==0 ? 0.5 : 1.5);
+    }
+    closesocket(sock);
+    for (INDEX i=0; i<_ctIOSLan; i++) {
+      for (INDEX iPort=0; iPort<IOSLAN_PORTS; iPort++) {
+        ctFound += (aubFound[i]>>iPort)&1;
+      }
+    }
+  }
+  CPrintF("LAN search: %d addresses asked, %d games found\n", _ctIOSLan, ctFound);
+  pthread_mutex_lock(&_mxIOSLan);
+  _bIOSLanEnded = TRUE;
+  _bIOSLanBusy = FALSE;
+  pthread_mutex_unlock(&_mxIOSLan);
+  return NULL;
+}
+#endif
 
 #ifdef PLATFORM_WIN32
 DWORD WINAPI _LocalNet_Thread(LPVOID lpParam) {

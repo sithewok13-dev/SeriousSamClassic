@@ -1577,8 +1577,54 @@ PIXaabbox2D CMGServerList::GetScrollBarHandleBox(void)
   return GetSliderBox(mg_iFirstOnScreen, mg_ctOnScreen, _lhServers.Count(), GetScrollBarFullBox());
 }
 
+#ifdef PLATFORM_IOS
+// a finger down on the server list: where, and whether it has dragged it
+static BOOL _bIOSListPressed = FALSE;
+static BOOL _bIOSListDragged = FALSE;
+static CTString _strIOSListPressed;     // the server it landed on (rows move as a search finds more)
+static PIX _pixIOSListPressJ = 0;
+static INDEX _iIOSListPressFirst = 0;   // the first on screen then
+
+// The finger lifts: joins the server it landed on, unless it dragged (or
+// the list isn't showing: bJoin). Also as any finger lands on the menu, so
+// none is still taken as down on the list.
+void IOS_ServerListTouchUp(CMGServerList *pmg, BOOL bJoin)
+{
+  bJoin = bJoin && _bIOSListPressed && !_bIOSListDragged && _strIOSListPressed!="";
+  _bIOSListPressed = FALSE;
+  if (bJoin) {
+    INDEX i=0;
+    FOREACHINLIST(CNetworkSession, ns_lnNode, _lhServers, itns) {
+      if (itns->ns_strAddress==_strIOSListPressed) {
+        pmg->mg_iSelected = i;
+        pmg->OnKeyDown(VK_RETURN);
+        break;
+      }
+      i++;
+    }
+  }
+}
+#endif
+
 void CMGServerList::OnMouseOver(PIX pixI, PIX pixJ)
 {
+#ifdef PLATFORM_IOS
+  if (_bIOSListPressed) {
+    mg_pixMouseI = pixI;
+    mg_pixMouseJ = pixJ;
+    // a drag of half a line scrolls the list along with the finger
+    const PIX pixDrag = pixJ-_pixIOSListPressJ;
+    if (Abs(pixDrag)*2>mg_pixListStepJ) {
+      _bIOSListDragged = TRUE;
+    }
+    if (_bIOSListDragged && mg_pixListStepJ>0) {
+      const INDEX ctSessions = _lhServers.Count();
+      mg_iFirstOnScreen = Clamp(INDEX(_iIOSListPressFirst-pixDrag/mg_pixListStepJ), (INDEX)0, ClampDn(ctSessions-mg_ctOnScreen, (INDEX)0));
+      mg_iSelected = Clamp(mg_iSelected, mg_iFirstOnScreen, mg_iFirstOnScreen+mg_ctOnScreen-1);
+    }
+    return;
+  }
+#endif
   mg_pixMouseI = pixI;
   mg_pixMouseJ = pixJ;
 
@@ -1674,6 +1720,22 @@ BOOL CMGServerList::OnKeyDown(int iVKey)
       mg_iDragLine = mg_iFirstOnScreen;
       break;
     } 
+#ifdef PLATFORM_IOS
+    // (on a server: it joins as the finger lifts, unless it drags the list)
+    _bIOSListPressed = TRUE;
+    _bIOSListDragged = FALSE;
+    _strIOSListPressed = "";
+    {INDEX i=0;
+    FOREACHINLIST(CNetworkSession, ns_lnNode, _lhServers, itns) {
+      if (i==mg_iSelected) {
+        _strIOSListPressed = itns->ns_strAddress;
+      }
+      i++;
+    }}
+    _pixIOSListPressJ = mg_pixMouseJ;
+    _iIOSListPressFirst = mg_iFirstOnScreen;
+    break;
+#endif
   case VK_RETURN:
     PlayMenuSound(_psdPress);
     IFeel_PlayEffect("Menu_press");

@@ -22,6 +22,8 @@ if(NOT SE_IOS_BUILD_NUMBER)
 endif()
 
 target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSSupport.c)
+# multiplayer on the Wi-Fi: this phone's address, the addresses a LAN search asks
+target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSNet.c)
 target_include_directories(${SE_EXE} PRIVATE ${SDL2_INCLUDE_DIR})
 
 # Touch controls: a UIKit overlay in Objective-C (ARC), and IOSTouch.h for the

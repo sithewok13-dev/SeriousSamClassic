@@ -20,6 +20,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "GameMP/Game.h"
 #if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
 #include "IOSPhotoCam.h"
+static void IOS_NetCharacter(CPlayerCharacter &pc);
 #endif
 #ifndef PLATFORM_FREEBSD
 #include <sys/timeb.h>
@@ -1946,7 +1947,16 @@ void CGame::SavePlayersAndControls( void)
        || pcConfig.pc_strTeam!=pcInGame.pc_strTeam
        || memcmp(pcConfig.pc_aubAppearance, pcInGame.pc_aubAppearance, sizeof(pcInGame.pc_aubAppearance))!=0 ) {
         // demand change in game
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+        // (with the ID it joined with)
+        CPlayerCharacter pcIOS = pcConfig;
+        if (!_pNetwork->IsServer()) {
+          IOS_NetCharacter(pcIOS);
+        }
+        lp.lp_pplsPlayerSource->ChangeCharacter(pcIOS);
+#else
         lp.lp_pplsPlayerSource->ChangeCharacter(pcConfig);
+#endif
       }
     }
   }
@@ -1974,6 +1984,44 @@ void CGame::SetupLocalPlayers( void)
   }
 }
 
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// A player as sent into someone else's game: its ID mixed with this copy of
+// the app's key (every copy made the same IDs from rand(), never seeded, and
+// a second phone joining was turned away as a player already in the game)
+static void IOS_NetCharacter(CPlayerCharacter &pc)
+{
+  static UBYTE aubKey[PLAYERGUIDSIZE];
+  static BOOL bKey = FALSE;
+  if (!bKey) {
+    const CTFileName fnmKey = CTString("Players\\NetKey.txt");
+    CTString strKey;
+    BOOL bRead = FALSE;
+    if (FileExists(fnmKey)) {
+      LoadStringVar(fnmKey, strKey);
+      bRead = TRUE;
+      for (INDEX i=0; i<PLAYERGUIDSIZE && bRead; i++) {
+        unsigned int uByte = 0;
+        bRead = (strlen(strKey)>=(size_t)(i*2+2) && sscanf(((const char *)strKey)+i*2, "%2x", &uByte)==1);
+        aubKey[i] = (UBYTE)uByte;
+      }
+    }
+    if (!bRead) {
+      arc4random_buf(aubKey, PLAYERGUIDSIZE);
+      strKey = "";
+      for (INDEX i=0; i<PLAYERGUIDSIZE; i++) {
+        strKey += CTString(0, "%02x", (int)aubKey[i]);
+      }
+      strKey += "\n";
+      SaveStringVar(fnmKey, strKey);
+    }
+    bKey = TRUE;
+  }
+  for (INDEX i=0; i<PLAYERGUIDSIZE; i++) {
+    pc.pc_aubGUID[i] ^= aubKey[i];
+  }
+}
+#endif
+
 BOOL CGame::AddPlayers(void)
 {
   // add local player(s) into game
@@ -1983,7 +2031,16 @@ BOOL CGame::AddPlayers(void)
       INDEX iPlayer = lp.lp_iPlayer;
       if (iPlayer>=0) {
         ASSERT(iPlayer>=0 && iPlayer<8);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+        // (joining someone else's game: the ID with this copy's key)
+        CPlayerCharacter pcIOS = gm_apcPlayers[iPlayer];
+        if (!_pNetwork->IsServer()) {
+          IOS_NetCharacter(pcIOS);
+        }
+        lp.lp_pplsPlayerSource = _pNetwork->AddPlayer_t(pcIOS);
+#else
         lp.lp_pplsPlayerSource = _pNetwork->AddPlayer_t(gm_apcPlayers[iPlayer]);
+#endif
         lp.lp_bActive = TRUE;
       }
     }

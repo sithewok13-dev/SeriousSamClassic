@@ -63,9 +63,14 @@ static void GetGUID(UBYTE aub[16])
 
 #else
 
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+    // (each copy of the app its own: rand() is never seeded)
+    arc4random_buf(aub, 16);
+#else
     // !!! FIXME : rcg10112001 Is this sufficient for these purposes?
     for (int i = 0; i < 16; i++)
         aub[i] = (UBYTE) (255.0 * rand() / (RAND_MAX + 1.0));
+#endif
 
 #endif
 }

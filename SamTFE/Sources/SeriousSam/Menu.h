@@ -14,6 +14,7 @@ void MenuOnMouseMove(PIX pixI, PIX pixJ);
 #ifdef PLATFORM_IOS
 void MenuOnTouchDown(PIX pixI, PIX pixJ);
 void MenuKeepSettings(void);
+void MenuOnTouchUp(void);
 #endif
 void MenuOnLMBDown(void);
 BOOL DoMenu( CDrawPort *pdp); // returns TRUE if still active, FALSE if should quit
