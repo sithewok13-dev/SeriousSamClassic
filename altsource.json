@@ -1,0 +1,72 @@
+{
+  "name": "Serious Sam Classic for iPhone",
+  "identifier": "io.github.sithewok13.serioussam",
+  "subtitle": "Sam FE and Sam SE: the classic Serious Sam games on iPhone.",
+  "description": "Unofficial iPhone builds of Serious Sam: The First Encounter and The Second Encounter, with touch controls. Bring your own game files.",
+  "iconURL": "https://raw.githubusercontent.com/sithewok13-dev/SeriousSamClassic/ios/SamTSE/serioussamse.png",
+  "website": "https://github.com/sithewok13-dev/SeriousSamClassic",
+  "tintColor": "#E8A33D",
+  "apps": [
+    {
+      "name": "Sam FE",
+      "bundleIdentifier": "io.github.sithewok13.serioussam.fe",
+      "developerName": "sithewok13-dev",
+      "subtitle": "The First Encounter on iPhone, with touch controls.",
+      "localizedDescription": "Serious Sam: The First Encounter, on Croteam's open-source Serious Engine 1. Touch controls made for Serious Sam: a move stick under your left thumb, drag to look, FIRE, JUMP, USE and CROUCH, and a weapon wheel. Tilt aiming, quick save and load, a HUD that fits notched screens, CAMERA (photos, selfies with the enemies posing, Action Freeze, a cinematic burst), network games on Wi-Fi or the internet, and a cheat for relaxed play.\n\nYou need your own PC copy of the game: no game files are included. After installing, open the app once, then copy the game's files into Files > On My iPhone > Sam FE. Full guide: https://github.com/sithewok13-dev/SeriousSamClassic/releases/latest\n\nBuilt on tx00100xt's SeriousSamClassic (https://github.com/tx00100xt/SeriousSamClassic). Unofficial, not affiliated with Croteam or Devolver Digital. Free software under the GNU GPL v2.",
+      "iconURL": "https://raw.githubusercontent.com/sithewok13-dev/SeriousSamClassic/ios/SamTFE/serioussam.png",
+      "tintColor": "#E8A33D",
+      "category": "games",
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "0.1.28",
+          "buildVersion": "28",
+          "date": "2026-10-16",
+          "localizedDescription": "ios-v0.3: CAMERA (photos, selfies, bursts, Action Freeze, cinematic burst), network games, typing in the menus, and the sithewok cheat with a level picker.",
+          "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-v0.3/serioussam-ios.ipa",
+          "size": 6245940,
+          "minOSVersion": "14.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSMotionUsageDescription": "Turning the device aims, while tilt aiming is on (hold MENU to set it).",
+          "NSPhotoLibraryAddUsageDescription": "CAMERA saves your photos and selfies of the game to your photo library.",
+          "NSLocalNetworkUsageDescription": "Multiplayer finds, hosts and joins games on your Wi-Fi."
+        }
+      }
+    },
+    {
+      "name": "Sam SE",
+      "bundleIdentifier": "io.github.sithewok13.serioussam.se",
+      "developerName": "sithewok13-dev",
+      "subtitle": "The Second Encounter on iPhone, with touch controls.",
+      "localizedDescription": "Serious Sam: The Second Encounter, on Croteam's open-source Serious Engine 1. Touch controls made for Serious Sam: a move stick under your left thumb, drag to look, FIRE, JUMP, USE and CROUCH, and a weapon wheel. Tilt aiming, quick save and load, a HUD that fits notched screens, CAMERA (photos, selfies with the enemies posing, Action Freeze, a cinematic burst), network games on Wi-Fi or the internet, and a cheat for relaxed play.\n\nYou need your own PC copy of the game: no game files are included. After installing, open the app once, then copy the game's files into Files > On My iPhone > Sam SE. Full guide: https://github.com/sithewok13-dev/SeriousSamClassic/releases/latest\n\nBuilt on tx00100xt's SeriousSamClassic (https://github.com/tx00100xt/SeriousSamClassic). Unofficial, not affiliated with Croteam or Devolver Digital. Free software under the GNU GPL v2.",
+      "iconURL": "https://raw.githubusercontent.com/sithewok13-dev/SeriousSamClassic/ios/SamTSE/serioussamse.png",
+      "tintColor": "#C8572B",
+      "category": "games",
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "0.1.28",
+          "buildVersion": "28",
+          "date": "2026-10-16",
+          "localizedDescription": "ios-v0.3: CAMERA (photos, selfies, bursts, Action Freeze, cinematic burst), network games, typing in the menus, and the sithewok cheat with a level picker.",
+          "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-v0.3/serioussamse-ios.ipa",
+          "size": 6509166,
+          "minOSVersion": "14.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSMotionUsageDescription": "Turning the device aims, while tilt aiming is on (hold MENU to set it).",
+          "NSPhotoLibraryAddUsageDescription": "CAMERA saves your photos and selfies of the game to your photo library.",
+          "NSLocalNetworkUsageDescription": "Multiplayer finds, hosts and joins games on your Wi-Fi."
+        }
+      }
+    }
+  ],
+  "news": []
+}
