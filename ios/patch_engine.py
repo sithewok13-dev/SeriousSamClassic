@@ -1595,6 +1595,42 @@ extern "C" int IOS_ReadFrameRGBA(int w, int h, unsigned char *p)
 void CDrawPort::GrabScreen( class CImageInfo &iiGrabbedImage, INDEX iGrabZBuffer/*=0*/) const
 """, "IOS_ReadFrameRGBA")
 
+    # A selfie's flash: while CAMERA's photo view is drawn, it may light each
+    # model further (ios/IOSPhotoCam.cpp sets the hook only then), after the
+    # model's own lights and its entity's adjustments
+    p = src / "Engine/Rendering/RenderModels.cpp"
+    sub(p, "extern INDEX mdl_iShadowQuality;\n",
+"""extern INDEX mdl_iShadowQuality;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// (the touch controls' CAMERA: a selfie's flash, NULL but while it is drawn)
+ENGINE_API void (*_pfnIOSFlash)(CEntity *pen, const FLOAT3D &vModel, FLOAT3D &vLightDirection, COLOR &colLight, COLOR &colAmbient) = NULL;
+#endif
+""", "_pfnIOSFlash)(CEntity *pen")
+    sub(p, """  const BOOL bAllowShadows = en.AdjustShadingParameters( vTotalLightDirection, colLight, colAmbient);
+  bRenderModelShadow = (bRenderModelShadow && bAllowShadows && bRenderShadow && mdl_iShadowQuality>0);
+  
+  // prepare render model structure
+""", """  const BOOL bAllowShadows = en.AdjustShadingParameters( vTotalLightDirection, colLight, colAmbient);
+  bRenderModelShadow = (bRenderModelShadow && bAllowShadows && bRenderShadow && mdl_iShadowQuality>0);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  if (_pfnIOSFlash!=NULL) _pfnIOSFlash(&en, plModel.pl_PositionVector, vTotalLightDirection, colLight, colAmbient);
+#endif
+  
+  // prepare render model structure
+""", "_pfnIOSFlash(&en, plModel.pl_PositionVector, vTotalLightDirection, colLight, colAmbient);\n#endif\n  \n  // prepare render model")
+    sub(p, """  const BOOL bAllowShadows = en.AdjustShadingParameters( vTotalLightDirection, colLight, colAmbient);
+  bRenderModelShadow = (bRenderModelShadow && bAllowShadows && bRenderShadow && mdl_iShadowQuality>0);
+
+  ULONG &ulRenFlags = RM_GetRenderFlags();
+""", """  const BOOL bAllowShadows = en.AdjustShadingParameters( vTotalLightDirection, colLight, colAmbient);
+  bRenderModelShadow = (bRenderModelShadow && bAllowShadows && bRenderShadow && mdl_iShadowQuality>0);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  if (_pfnIOSFlash!=NULL) _pfnIOSFlash(&en, plModel.pl_PositionVector, vTotalLightDirection, colLight, colAmbient);
+#endif
+
+  ULONG &ulRenFlags = RM_GetRenderFlags();
+""", "_pfnIOSFlash(&en, plModel.pl_PositionVector, vTotalLightDirection, colLight, colAmbient);\n#endif\n\n  ULONG &ulRenFlags")
+
     # (ECC takes no preprocessor lines in function bodies: a macro)
     p = src / ("EntitiesMP/Player.es" if game == "SamTSE" else "Entities/Player.es")
     sub(p, "#define STR_READ_MESSAGE_HINT \"Press USE to read the message!\"\n#define READ_MESSAGE_HINT_AND\n#endif\n",

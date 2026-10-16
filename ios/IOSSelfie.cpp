@@ -42,8 +42,11 @@
 // Enemies nearer the camera than the player are left out of the photo (put
 // back as it ends), as a held-out phone sees past them: those more than
 // IOSSELFIE_FRONT_MARGIN nearer it than the player, or within
-// IOSSELFIE_LENS_CLEAR of the lens. The player is the nearest in it.
+// IOSSELFIE_LENS_CLEAR of the lens; and those no more than
+// IOSSELFIE_BESIDE further than the player whose bodies are over the
+// player in the frame. The player is the nearest in it, and clear.
 #define IOSSELFIE_FRONT_MARGIN 0.3f
+#define IOSSELFIE_BESIDE 0.5f
 #define IOSSELFIE_LENS_CLEAR 1.5f
 // Two posed people whose bodies overlap by this much (of their sizes added
 // up) are crowded: they stand calmly, rather than swing their arms through
@@ -213,13 +216,28 @@ static int IOSSelfie_InFrame(const IOSSelfieView &v, const IOSSelfiePerson &p)
   return fabs(x) <= IOSSELFIE_FIT_X && y <= IOSSELFIE_FIT_UP && y >= -IOSSELFIE_FIT_DOWN;
 }
 
-// Whether an enemy (its middle) is nearer a camera at vCam than the player,
-// so left out of the photo from there (IOSSELFIE_FRONT_MARGIN)
+// Whether an enemy (its middle and size) is nearer a camera at vCam than the
+// player, or level with them and over them, so left out of the photo from
+// there (IOSSELFIE_FRONT_MARGIN, IOSSELFIE_BESIDE)
 static int IOSSelfie_InFront(const FLOAT3D &vCam, const FLOAT3D &vMid, FLOAT fBodyR)
 {
-  (void)fBodyR;
-  const FLOAT fD = (vMid - vCam).Length();
-  return fD < IOSSELFIE_LENS_CLEAR || fD < (_aPeople[0].vMid - vCam).Length() - IOSSELFIE_FRONT_MARGIN;
+  const IOSSelfiePerson &me = _aPeople[0];
+  FLOAT3D d = vMid - vCam;
+  const FLOAT fD = d.Length();
+  const FLOAT fPlayer = (me.vMid - vCam).Length();
+  if (fD < IOSSELFIE_LENS_CLEAR || fD < fPlayer - IOSSELFIE_FRONT_MARGIN) return 1;
+  if (fD >= fPlayer + IOSSELFIE_BESIDE) return 0;
+  d /= fD;
+  const FLOAT3D apv[2] = { me.vHead, me.vMid };
+  const FLOAT afR[2] = { me.fHeadR, me.fBodyR };
+  for (int k = 0; k < 2; k++) {
+    FLOAT3D dp = apv[k] - vCam;
+    const FLOAT fDp = dp.Length();
+    if (fDp < 0.01f) continue;
+    dp /= fDp;
+    if (acos(Clamp(d % dp, -1.0f, 1.0f)) < fBodyR / fD + afR[k] / fDp) return 1;
+  }
+  return 0;
 }
 
 // Whether person i's face is seen from the camera: nothing of the level in
@@ -757,6 +775,7 @@ static int IOSSelfie_Prepare(int iW, int iH)
   }
   IOSStance_Seed((unsigned int)(_pTimer->GetHighPrecisionTimer().GetSeconds() * 1000.0) * 2654435761u);
   IOSPhotoCam_SetFov(IOSSELFIE_FOV);
+  IOSPhotoCam_SetFlash(1); // (a phone's flash: the faces lit, however the level is lit behind them)
   _bPhoneLeft = IOSStance_Rand(10) < 4;
   const int r = IOSStance_Rand(100);
   _fLift = (r < 20) ? IOSSELFIE_LIFT_UP : ((r < 35) ? IOSSELFIE_LIFT_DOWN : IOSSELFIE_LIFT);

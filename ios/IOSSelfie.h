@@ -9,7 +9,9 @@
 // too, an arm up or showing off the gun. Everyone else stays as they were,
 // frozen mid-attack. Shots and blasts in front of a face are left out of
 // the photo, and so is any enemy nearer the camera than the player (the
-// player is the nearest in it); in a tight crowd, people pose calmly. Every pose is put back exactly as it was when it ends, so a
+// player is the nearest in it, and so is any level with them and over
+// them); in a tight crowd, people pose calmly. A flash lights the faces
+// near the camera, however the level is lit behind them. Every pose is put back exactly as it was when it ends, so a
 // selfie changes nothing in the game. Built on IOSPhotoCam; IOSSelfieShots
 // takes the photos. In the game library, on the game's thread.
 

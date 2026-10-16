@@ -44,6 +44,14 @@ static CEntityPointer _penPlayer;
 static FLOAT3D _vEye(0, 0, 0);
 static ANGLE3D _aView(0, 0, 0);
 static int _bHidePlayer = 0;
+// A selfie's flash: each model lit from the camera as well, by
+// IOSPHOTOCAM_FLASH_LIGHT (and IOSPHOTOCAM_FLASH_AMBIENT all round) at the
+// lens, fading with the distance (half at IOSPHOTOCAM_FLASH_REACH)
+#define IOSPHOTOCAM_FLASH_LIGHT 190.0f
+#define IOSPHOTOCAM_FLASH_AMBIENT 45.0f
+#define IOSPHOTOCAM_FLASH_REACH 3.0f
+static int _bFlash = 0;
+extern ENGINE_API void (*_pfnIOSFlash)(CEntity *pen, const FLOAT3D &vModel, FLOAT3D &vLightDirection, COLOR &colLight, COLOR &colAmbient);
 // Hidden from the view: each entity and how it was drawn
 static CEntityPointer _apenHidden[IOSPHOTOCAM_MAX_HIDDEN];
 static enum CEntity::RenderType _aeHiddenRender[IOSPHOTOCAM_MAX_HIDDEN];
@@ -185,6 +193,7 @@ int IOSPhotoCam_Begin(int (*pfnPrepare)(int iW, int iH))
   _ctSolids = 0;
   _bLevelKnown = 0;
   _bHidePlayer = 0;
+  _bFlash = 0;
   _bActive = 1;
   return 1;
 }
@@ -322,6 +331,38 @@ void IOSPhotoCam_Hide(CEntity *pen)
   pen->en_ulFlags &= ~ENF_HASPARTICLES;
 }
 
+void IOSPhotoCam_SetFlash(int bOn)
+{
+  _bFlash = bOn != 0;
+}
+
+// (RenderModels.cpp, while the photo view is drawn with the flash on) one
+// model's lights, the flash added: the light from the camera's side as well,
+// brighter, and a little more all round
+static void IOSPhotoCam_Flash(CEntity *pen, const FLOAT3D &vModel, FLOAT3D &vLightDirection, COLOR &colLight, COLOR &colAmbient)
+{
+  (void)pen;
+  FLOAT3D dFlash = vModel + FLOAT3D(0.0f, 1.0f, 0.0f) - _vCamPos; // (to about its middle)
+  const FLOAT fDist = dFlash.Length();
+  if (fDist < 0.01f) return;
+  dFlash /= fDist;
+  const FLOAT fFade = 1.0f / (1.0f + (fDist / IOSPHOTOCAM_FLASH_REACH) * (fDist / IOSPHOTOCAM_FLASH_REACH));
+  UBYTE ubR, ubG, ubB;
+  ColorToRGB(colLight, ubR, ubG, ubB);
+  const FLOAT fOld = (ubR + ubG + ubB) / 3.0f, fAdd = IOSPHOTOCAM_FLASH_LIGHT * fFade;
+  // (the light's direction: between its own and the flash's, as bright as each)
+  FLOAT3D vOld = vLightDirection;
+  if (vOld.Length() > 0.001f) vOld.Normalize();
+  FLOAT3D vNew = vOld * fOld + dFlash * fAdd;
+  if (vNew.Length() > 0.001f) vLightDirection = vNew.Normalize();
+  const COLOR colA = colLight & 0xFF;
+  colLight = RGBToColor((UBYTE)Min(ubR + fAdd, 255.0f), (UBYTE)Min(ubG + fAdd, 255.0f), (UBYTE)Min(ubB + fAdd, 255.0f)) | colA;
+  ColorToRGB(colAmbient, ubR, ubG, ubB);
+  const FLOAT fAmb = IOSPHOTOCAM_FLASH_AMBIENT * fFade;
+  const COLOR colAA = colAmbient & 0xFF;
+  colAmbient = RGBToColor((UBYTE)Min(ubR + fAmb, 255.0f), (UBYTE)Min(ubG + fAmb, 255.0f), (UBYTE)Min(ubB + fAmb, 255.0f)) | colAA;
+}
+
 void IOSPhotoCam_SetHidePlayer(int bHide)
 {
   _bHidePlayer = bHide != 0;
@@ -377,7 +418,9 @@ int IOSPhotoCam_Render(CEntity *penViewer, CDrawPort *pdp)
   CEntity *penPlayer = _penPlayer;
   const enum CEntity::RenderType rtPlayer = (penPlayer != NULL) ? penPlayer->en_RenderType : CEntity::RT_NONE;
   if (_bHidePlayer && penPlayer != NULL) penPlayer->en_RenderType = CEntity::RT_NONE;
+  _pfnIOSFlash = _bFlash ? IOSPhotoCam_Flash : NULL;
   RenderView(*penViewer->en_pwoWorld, *(CEntity *)NULL, apr, *pdp);
+  _pfnIOSFlash = NULL;
   if (_bHidePlayer && penPlayer != NULL) penPlayer->en_RenderType = rtPlayer;
   _pTimer->SetLerp(fLerp);
   _pTimer->SetLerp2(fLerp2);

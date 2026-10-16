@@ -15,6 +15,10 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 
 extern INDEX mdl_iShadowQuality;
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+// (the touch controls' CAMERA: a selfie's flash, NULL but while it is drawn)
+ENGINE_API void (*_pfnIOSFlash)(CEntity *pen, const FLOAT3D &vModel, FLOAT3D &vLightDirection, COLOR &colLight, COLOR &colAmbient) = NULL;
+#endif
 // model shadow precision
 // 0 = no shadows
 // 1 = one simple shadow
@@ -362,6 +366,9 @@ void CRenderer::RenderOneModel( CEntity &en, CModelObject &moModel, const CPlace
   mdl_iShadowQuality = Clamp( mdl_iShadowQuality, (INDEX)0, (INDEX)3);
   const BOOL bAllowShadows = en.AdjustShadingParameters( vTotalLightDirection, colLight, colAmbient);
   bRenderModelShadow = (bRenderModelShadow && bAllowShadows && bRenderShadow && mdl_iShadowQuality>0);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  if (_pfnIOSFlash!=NULL) _pfnIOSFlash(&en, plModel.pl_PositionVector, vTotalLightDirection, colLight, colAmbient);
+#endif
   
   // prepare render model structure
   CRenderModel rm;
@@ -489,6 +496,9 @@ void CRenderer::RenderOneSkaModel( CEntity &en, const CPlacement3D &plModel,
   mdl_iShadowQuality = Clamp( mdl_iShadowQuality, (INDEX)0, (INDEX)3);
   const BOOL bAllowShadows = en.AdjustShadingParameters( vTotalLightDirection, colLight, colAmbient);
   bRenderModelShadow = (bRenderModelShadow && bAllowShadows && bRenderShadow && mdl_iShadowQuality>0);
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+  if (_pfnIOSFlash!=NULL) _pfnIOSFlash(&en, plModel.pl_PositionVector, vTotalLightDirection, colLight, colAmbient);
+#endif
 
   ULONG &ulRenFlags = RM_GetRenderFlags();
   ulRenFlags = 0;

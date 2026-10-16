@@ -81,6 +81,9 @@ void IOSPhotoCam_Hide(CEntity *pen);
 int IOSPhotoCam_IsHidden(CEntity *pen);
 // Leaves the player's own body out of the view (only while it is drawn)
 void IOSPhotoCam_SetHidePlayer(int bHide);
+// A flash for the photo view: models lit from the camera as well, more the
+// nearer they are (a selfie's; off as it starts)
+void IOSPhotoCam_SetFlash(int bOn);
 
 // (Game.cpp) Draws the photo view for this viewer into pdp, locked: 1 if it
 // did (the game draws nothing else of the view then: no HUD, no messages)
