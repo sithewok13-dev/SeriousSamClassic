@@ -72,6 +72,9 @@ int IOSPhotoCam_Clear(const FLOAT3D &vFrom, const FLOAT3D &vTo, FLOAT fSlack);
 int IOSPhotoCam_RoomAt(const FLOAT3D &vFrom, const FLOAT3D &v, FLOAT fR);
 // (just the models)
 int IOSPhotoCam_InModel(const FLOAT3D &v, FLOAT fR);
+// Models a camera at vCam may stand in, as they will be left out of the
+// photo from there (NULL: none; set only while looking for a spot)
+void IOSPhotoCam_SetLeftOut(int (*pfnLeftOut)(CEntity *pen, const FLOAT3D &vCam));
 
 // Hides this entity (and its particles) from the photo view, until it ends
 void IOSPhotoCam_Hide(CEntity *pen);

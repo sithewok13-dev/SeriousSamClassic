@@ -33,6 +33,20 @@
 #define IOSSELFIE_LIFT_HIGHER 2.5f
 #define IOSSELFIE_TILT_CHANCE 3
 #define IOSSELFIE_TILT_MAX 6.0f
+// Never looking down more steeply than IOSSELFIE_PITCH_DOWN_MAX (degrees):
+// held up high, the camera stands further back instead (from right above, a
+// crowd is a heap of heads with the player lost in it)
+#define IOSSELFIE_PITCH_DOWN_MAX 35.0f
+// Enemies between the camera and the player are left out of the photo (put
+// back as it ends), as a held-out phone sees past them: those more than
+// IOSSELFIE_FRONT_MARGIN nearer the camera than the player and over the
+// player in the frame, or within IOSSELFIE_LENS_CLEAR of the lens
+#define IOSSELFIE_FRONT_MARGIN 0.5f
+#define IOSSELFIE_LENS_CLEAR 1.5f
+// Two posed people whose bodies overlap by this much (of their sizes added
+// up) are crowded: they stand calmly, rather than swing their arms through
+// each other
+#define IOSSELFIE_CROWDED 0.8f
 // What fits: a head within these fractions of the frame's half width and
 // half height from its middle (up, down); the player's (near the middle)
 // within the second set. The nearest IOSSELFIE_FACES_CLEAR faces must be in
@@ -197,8 +211,31 @@ static int IOSSelfie_InFrame(const IOSSelfieView &v, const IOSSelfiePerson &p)
   return fabs(x) <= IOSSELFIE_FIT_X && y <= IOSSELFIE_FIT_UP && y >= -IOSSELFIE_FIT_DOWN;
 }
 
+// Whether an enemy (its middle and size) is between a camera at vCam and
+// the player, so left out of the photo from there (IOSSELFIE_FRONT_MARGIN)
+static int IOSSelfie_InFront(const FLOAT3D &vCam, const FLOAT3D &vMid, FLOAT fBodyR)
+{
+  const IOSSelfiePerson &me = _aPeople[0];
+  FLOAT3D d = vMid - vCam;
+  const FLOAT fD = d.Length();
+  if (fD < IOSSELFIE_LENS_CLEAR) return 1;
+  if (fD >= (me.vMid - vCam).Length() - IOSSELFIE_FRONT_MARGIN) return 0;
+  d /= fD;
+  const FLOAT3D apv[2] = { me.vHead, me.vMid };
+  const FLOAT afR[2] = { me.fHeadR, me.fBodyR };
+  for (int k = 0; k < 2; k++) {
+    FLOAT3D dp = apv[k] - vCam;
+    const FLOAT fDp = dp.Length();
+    if (fDp < 0.01f) continue;
+    dp /= fDp;
+    if (acos(Clamp(d % dp, -1.0f, 1.0f)) < fBodyR / fD + afR[k] / fDp) return 1;
+  }
+  return 0;
+}
+
 // Whether person i's face is seen from the camera: nothing of the level in
-// the way, and nobody nearer over it (anyone near: posing, or not)
+// the way, and nobody nearer over it (anyone near: posing, or not; but not
+// those left out of the photo, IOSSelfie_InFront)
 static int IOSSelfie_FaceClear(const FLOAT3D &vCam, int i)
 {
   const IOSSelfiePerson &p = _aPeople[i];
@@ -222,6 +259,7 @@ static int IOSSelfie_FaceClear(const FLOAT3D &vCam, int i)
       bPlayer.fBodyR = _aPeople[0].fBodyR;
     }
     if (b->pen == (CEntity *)p.pen) continue;
+    if (j < _ctBlockers && IOSSelfie_InFront(vCam, b->vMid, b->fBodyR)) continue;
     const FLOAT3D apv[2] = { b->vHead, b->vMid };
     const FLOAT afR[2] = { b->fHeadR, b->fBodyR };
     for (int k = 0; k < 2; k++) {
@@ -237,13 +275,14 @@ static int IOSSelfie_FaceClear(const FLOAT3D &vCam, int i)
 }
 
 // How much of the frame things nearer the camera than the player cover
-// (their bodies, roughly: 1 is the whole frame)
+// (their bodies, roughly: 1 is the whole frame), but for those left out
 static FLOAT IOSSelfie_Clutter(const IOSSelfieView &v)
 {
   const FLOAT fPlayer = (_aPeople[0].vHead - v.vPos).Length();
   FLOAT fCover = 0.0f;
   for (int j = 0; j < _ctBlockers; j++) {
     const IOSSelfieBlocker &b = _aBlockers[j];
+    if (IOSSelfie_InFront(v.vPos, b.vMid, b.fBodyR)) continue;
     FLOAT x, y, z;
     IOSSelfie_Project(v, b.vMid, x, y, z);
     if (z <= 0.05f || z >= fPlayer) continue;
@@ -269,7 +308,8 @@ static FLOAT IOSSelfie_Score(const IOSSelfieView &v, FLOAT fDist, int bFrameOnly
   FLOAT fScore = 3.0f - IOSSELFIE_DIST_COST * fDist;
   if (!bFrameOnly) fScore -= IOSSELFIE_CLUTTER_COST * IOSSelfie_Clutter(v);
   for (int i = 1; i < _ctPeople; i++) {
-    const int bSeen = IOSSelfie_InFrame(v, _aPeople[i]) && (bFrameOnly || IOSSelfie_FaceClear(v.vPos, i));
+    const int bSeen = IOSSelfie_InFrame(v, _aPeople[i]) && !IOSSelfie_InFront(v.vPos, _aPeople[i].vMid, _aPeople[i].fBodyR)
+                      && (bFrameOnly || IOSSelfie_FaceClear(v.vPos, i));
     if (bSeen) fScore += 1.0f / (1.0f + 0.12f * (i - 1));
     else if (i <= IOSSELFIE_FACES_CLEAR) fScore -= 4.0f;
   }
@@ -288,6 +328,25 @@ static FLOAT3D IOSSelfie_AimPoint(void)
     w += wi;
   }
   return v / w;
+}
+
+// Whether an enemy will be left out of the photo from a camera at vCam (the
+// camera may stand in it, IOSPhotoCam_SetLeftOut)
+static int IOSSelfie_LeftOut(CEntity *pen, const FLOAT3D &vCam)
+{
+  for (int j = 0; j < _ctBlockers; j++) {
+    if (_aBlockers[j].pen == pen) return IOSSelfie_InFront(vCam, _aBlockers[j].vMid, _aBlockers[j].fBodyR);
+  }
+  return 0;
+}
+
+// How steeply a camera at vCam looks down at v (degrees; up: below 0)
+static FLOAT IOSSelfie_PitchDown(const FLOAT3D &vCam, const FLOAT3D &v)
+{
+  FLOAT3D d = v - vCam;
+  const FLOAT fDown = -d(2);
+  d(2) = 0.0f;
+  return atan2(fDown, Max(d.Length(), 0.001f)) * 180.0f / PI;
 }
 
 // Finds where the camera goes: the best of the headings round the player,
@@ -323,6 +382,7 @@ static int IOSSelfie_PlaceCamera(void)
   FLOAT fBest = -1e8f;
   FLOAT3D vBest(0, 0, 0);
   static const FLOAT afLiftCost[3] = { 0.0f, 0.4f, 0.8f };
+  IOSPhotoCam_SetLeftOut(IOSSelfie_LeftOut);
   for (int pass = 0; pass < 3; pass++) {
     const FLOAT fLift = (pass == 0) ? _fLift : ((pass == 1) ? IOSSELFIE_LIFT_HIGH : IOSSELFIE_LIFT_HIGHER);
     for (int k = 0; k < IOSSELFIE_NUM_DIRS; k++) {
@@ -334,6 +394,10 @@ static int IOSSelfie_PlaceCamera(void)
       for (int d = 0; d < ctDist && afDist[d] <= IOSSELFIE_CAM_MAX; d++) {
         const FLOAT3D vCam = vEye + vDir * afDist[d] + FLOAT3D(0, fLift, 0);
         if ((vCam - vEye).Length() > fFree) break; // (and further that way)
+        // (never looking down too steeply: at the people, nor at the
+        // player, where a photo's aim is drawn towards them)
+        if (IOSSelfie_PitchDown(vCam, vAt) > IOSSELFIE_PITCH_DOWN_MAX
+            || IOSSelfie_PitchDown(vCam, vEye - FLOAT3D(0, 0.3f, 0)) > IOSSELFIE_PITCH_DOWN_MAX) continue;
         IOSSelfieView v;
         IOSSelfie_MakeView(v, vCam, vAt, 0.0f);
         // (what it could be at best, before casting any rays)
@@ -349,6 +413,7 @@ static int IOSSelfie_PlaceCamera(void)
     // (alone: no need to hold it up high)
     if (fBest > -1e7f && _ctPeople == 1) break;
   }
+  IOSPhotoCam_SetLeftOut(NULL);
   if (fBest <= -1e7f) return 0;
   _vCam = vBest;
   return 1;
@@ -517,7 +582,10 @@ static void IOSSelfie_Pose(void)
   }
   IOSPhotoCam_Place(_vCam, v.aRot);
   for (int i = 1; i < _ctPeople; i++) {
-    if (!_aPeople[i].bPhotobomb) _aPeople[i].bInFrame = IOSSelfie_InFrame(v, _aPeople[i]) && _aPeople[i].fDist <= IOSSELFIE_RANGE;
+    if (!_aPeople[i].bPhotobomb) {
+      _aPeople[i].bInFrame = IOSSelfie_InFrame(v, _aPeople[i]) && _aPeople[i].fDist <= IOSSELFIE_RANGE
+                             && !IOSPhotoCam_IsHidden(_aPeople[i].pen);
+    }
   }
 
   int ctOthers = 0, iBomber = -1;
@@ -545,17 +613,26 @@ static void IOSSelfie_Pose(void)
     IOSSelfiePerson &p = _aPeople[i];
     if (!p.bInFrame || i == iOblivious || p.pen == NULL || (p.pen->GetFlags() & ENF_DELETED)) continue;
     CEntity *pen = p.pen;
+    // crowded (another in the photo, or the player, close enough for poses
+    // to cut through each other): standing calmly, turned only a little
+    int bCrowded = 0;
+    for (int j = 0; j < _ctPeople && !bCrowded; j++) {
+      const IOSSelfiePerson &o = _aPeople[j];
+      if (j == i || !(j == 0 || o.bInFrame)) continue;
+      bCrowded = (o.vMid - p.vMid).Length() < IOSSELFIE_CROWDED * (o.fBodyR + p.fBodyR);
+    }
     FLOAT3D vLook = _vCam;
     if (iRare == RARE_STARE && i != iBomber) vLook = _aPeople[iBomber].vHead;
     if (iRare == RARE_ALLEYES) vLook = _aPeople[0].vHead;
     FLOAT fHeading = IOSSelfie_HeadingTo(p.pl.pl_PositionVector, vLook)
                      + (IOSStance_Rand01() - 0.5f) * 2.0f * IOSSELFIE_TURN_SMALL;
-    if (!p.bPhotobomb && iRare == RARE_NONE && IOSStance_Rand(100) < IOSSELFIE_TURN_CHANCE) {
+    if (!p.bPhotobomb && !bCrowded && iRare == RARE_NONE && IOSStance_Rand(100) < IOSSELFIE_TURN_CHANCE) {
       const FLOAT fTurn = IOSSELFIE_TURN_MIN + IOSStance_Rand01() * (IOSSELFIE_TURN_MAX - IOSSELFIE_TURN_MIN);
       fHeading += IOSStance_Chance(2) ? fTurn : -fTurn;
     }
     IOSSelfie_Face(pen, fHeading);
     int iKind = (iGroupKind >= 0) ? iGroupKind : IOSStance_RandomKind();
+    if (bCrowded) iKind = IOSSTANCE_IDLE;
     if (p.bPhotobomb) iKind = IOSStance_Chance(2) ? IOSSTANCE_ATTACK : IOSSTANCE_ANGER;
     INDEX iAnim, iFrame;
     CModelObject *pmo = pen->GetModelObject();
@@ -707,14 +784,28 @@ static int IOSSelfie_Prepare(int iW, int iH)
     _bFailed = 1;
     return 0;
   }
+  // the enemies between the camera and the player left out of the photo
+  // (posing or not); and those nearer the camera than the player whose
+  // heads are out of the frame (only a big piece of them would be in it)
   IOSSelfieView v;
   IOSSelfie_MakeView(v, _vCam, IOSSelfie_AimPoint(), 0.0f);
+  const FLOAT fPlayer = (_aPeople[0].vMid - _vCam).Length();
+  for (int j = 0; j < _ctBlockers; j++) {
+    const IOSSelfieBlocker &b = _aBlockers[j];
+    FLOAT x, y, z;
+    IOSSelfie_Project(v, b.vHead, x, y, z);
+    const int bHeadOut = z <= 0.05f || fabs(x) > 1.0f || fabs(y) > 1.0f;
+    if (IOSSelfie_InFront(_vCam, b.vMid, b.fBodyR) || (bHeadOut && (b.vMid - _vCam).Length() < fPlayer)) {
+      IOSPhotoCam_Hide(b.pen);
+    }
+  }
   for (int i = 0; i < _ctPeople; i++) {
-    _aPeople[i].bInFrame = i == 0 || (IOSSelfie_InFrame(v, _aPeople[i]) && _aPeople[i].fDist <= IOSSELFIE_RANGE);
+    _aPeople[i].bInFrame = i == 0 || (IOSSelfie_InFrame(v, _aPeople[i]) && _aPeople[i].fDist <= IOSSELFIE_RANGE
+                                      && !IOSPhotoCam_IsHidden(_aPeople[i].pen));
   }
   if (iBomber >= 0) {
     _aPeople[_ctPeople] = bomber;
-    if (IOSSelfie_InFrame(v, bomber) && IOSSelfie_FaceClear(_vCam, _ctPeople)) {
+    if (IOSSelfie_InFrame(v, bomber) && !IOSPhotoCam_IsHidden(bomber.pen) && IOSSelfie_FaceClear(_vCam, _ctPeople)) {
       _aPeople[_ctPeople].bInFrame = 1;
       _ctPeople++;
     }

@@ -116,10 +116,18 @@ static void IOSPhotoCam_FindLevel(void)
   _bLevelKnown = 1;
 }
 
+static int (*_pfnSolidLeftOut)(CEntity *pen, const FLOAT3D &vCam) = NULL;
+
+void IOSPhotoCam_SetLeftOut(int (*pfnLeftOut)(CEntity *pen, const FLOAT3D &vCam))
+{
+  _pfnSolidLeftOut = pfnLeftOut;
+}
+
 int IOSPhotoCam_InModel(const FLOAT3D &v, FLOAT fR)
 {
   for (int i = 0; i < _ctSolids; i++) {
     const FLOATaabbox3D &b = _aboxSolids[i];
+    if (_pfnSolidLeftOut != NULL && _pfnSolidLeftOut(_apenSolids[i], v)) continue;
     if (v(1) > b.minvect(1) - fR && v(1) < b.maxvect(1) + fR && v(2) > b.minvect(2) - fR && v(2) < b.maxvect(2) + fR
         && v(3) > b.minvect(3) - fR && v(3) < b.maxvect(3) + fR) return 1;
   }
