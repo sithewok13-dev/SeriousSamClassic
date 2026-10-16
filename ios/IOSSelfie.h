@@ -3,13 +3,13 @@
 // to a camera held out at the player and the enemies nearest them: up to
 // IOSSELFIE_MAX_PEOPLE of them (Sam has far more about than Jedi Knight's 8)
 // turn to it and strike a pose, each a frame of one of its own animations
-// (the classic enemies have no bones). The camera pulls back as far as it
-// takes to fit them, keeping the nearest faces clear, but never looks down
-// steeply; the player turns to it too, an arm up or showing off the gun.
-// Everyone else stays as they were, frozen mid-attack. Shots and blasts in
-// front of a face are left out of the photo, and so are enemies between
-// the camera and the player, or so near the lens that only a piece of them
-// would be in it; in a tight crowd, people pose calmly. Every pose is put back exactly as it was when it ends, so a
+// (the classic enemies have no bones). The camera stays at arm's length or
+// a little more (further only where there is no room near), keeping the
+// nearest faces clear, and never looks down steeply; the player turns to it
+// too, an arm up or showing off the gun. Everyone else stays as they were,
+// frozen mid-attack. Shots and blasts in front of a face are left out of
+// the photo, and so is any enemy nearer the camera than the player (the
+// player is the nearest in it); in a tight crowd, people pose calmly. Every pose is put back exactly as it was when it ends, so a
 // selfie changes nothing in the game. Built on IOSPhotoCam; IOSSelfieShots
 // takes the photos. In the game library, on the game's thread.
 

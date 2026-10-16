@@ -15,8 +15,9 @@
 #define IOSSELFIE_PHOTOBOMB_CHANCE 6
 // The camera: IOSSELFIE_FOV tall (degrees). Out from the player's eyes, at one
 // of IOSSELFIE_NUM_DIRS headings round them (a bit to the side first, as a
-// held-out arm), as near as IOSSELFIE_CAM_MIN and as far as IOSSELFIE_CAM_MAX
-// (pulling back to fit a crowd), with a ball of IOSSELFIE_CAM_CLEARANCE round
+// held-out arm), as near as IOSSELFIE_CAM_MIN and as far as IOSSELFIE_CAM_NEAR
+// (a selfie: the player big in it, however big the crowd), or where there
+// is no room for that, as far as IOSSELFIE_CAM_MAX, with a ball of IOSSELFIE_CAM_CLEARANCE round
 // it clear of the level. Its height over the eyes: IOSSELFIE_LIFT, now and
 // then IOSSELFIE_LIFT_UP or IOSSELFIE_LIFT_DOWN; or held up high,
 // IOSSELFIE_LIFT_HIGH or _HIGHER, to see over a crowd (a little less good). One in IOSSELFIE_TILT_CHANCE photos tilted up to
@@ -24,6 +25,7 @@
 #define IOSSELFIE_FOV 70.0f
 #define IOSSELFIE_NUM_DIRS 16
 #define IOSSELFIE_CAM_MIN 0.6f
+#define IOSSELFIE_CAM_NEAR 2.8f
 #define IOSSELFIE_CAM_MAX 12.0f
 #define IOSSELFIE_CAM_CLEARANCE 0.25f
 #define IOSSELFIE_LIFT 0.15f
@@ -37,11 +39,11 @@
 // held up high, the camera stands further back instead (from right above, a
 // crowd is a heap of heads with the player lost in it)
 #define IOSSELFIE_PITCH_DOWN_MAX 35.0f
-// Enemies between the camera and the player are left out of the photo (put
+// Enemies nearer the camera than the player are left out of the photo (put
 // back as it ends), as a held-out phone sees past them: those more than
-// IOSSELFIE_FRONT_MARGIN nearer the camera than the player and over the
-// player in the frame, or within IOSSELFIE_LENS_CLEAR of the lens
-#define IOSSELFIE_FRONT_MARGIN 0.5f
+// IOSSELFIE_FRONT_MARGIN nearer it than the player, or within
+// IOSSELFIE_LENS_CLEAR of the lens. The player is the nearest in it.
+#define IOSSELFIE_FRONT_MARGIN 0.3f
 #define IOSSELFIE_LENS_CLEAR 1.5f
 // Two posed people whose bodies overlap by this much (of their sizes added
 // up) are crowded: they stand calmly, rather than swing their arms through
@@ -211,26 +213,13 @@ static int IOSSelfie_InFrame(const IOSSelfieView &v, const IOSSelfiePerson &p)
   return fabs(x) <= IOSSELFIE_FIT_X && y <= IOSSELFIE_FIT_UP && y >= -IOSSELFIE_FIT_DOWN;
 }
 
-// Whether an enemy (its middle and size) is between a camera at vCam and
-// the player, so left out of the photo from there (IOSSELFIE_FRONT_MARGIN)
+// Whether an enemy (its middle) is nearer a camera at vCam than the player,
+// so left out of the photo from there (IOSSELFIE_FRONT_MARGIN)
 static int IOSSelfie_InFront(const FLOAT3D &vCam, const FLOAT3D &vMid, FLOAT fBodyR)
 {
-  const IOSSelfiePerson &me = _aPeople[0];
-  FLOAT3D d = vMid - vCam;
-  const FLOAT fD = d.Length();
-  if (fD < IOSSELFIE_LENS_CLEAR) return 1;
-  if (fD >= (me.vMid - vCam).Length() - IOSSELFIE_FRONT_MARGIN) return 0;
-  d /= fD;
-  const FLOAT3D apv[2] = { me.vHead, me.vMid };
-  const FLOAT afR[2] = { me.fHeadR, me.fBodyR };
-  for (int k = 0; k < 2; k++) {
-    FLOAT3D dp = apv[k] - vCam;
-    const FLOAT fDp = dp.Length();
-    if (fDp < 0.01f) continue;
-    dp /= fDp;
-    if (acos(Clamp(d % dp, -1.0f, 1.0f)) < fBodyR / fD + afR[k] / fDp) return 1;
-  }
-  return 0;
+  (void)fBodyR;
+  const FLOAT fD = (vMid - vCam).Length();
+  return fD < IOSSELFIE_LENS_CLEAR || fD < (_aPeople[0].vMid - vCam).Length() - IOSSELFIE_FRONT_MARGIN;
 }
 
 // Whether person i's face is seen from the camera: nothing of the level in
@@ -383,35 +372,39 @@ static int IOSSelfie_PlaceCamera(void)
   FLOAT3D vBest(0, 0, 0);
   static const FLOAT afLiftCost[3] = { 0.0f, 0.4f, 0.8f };
   IOSPhotoCam_SetLeftOut(IOSSelfie_LeftOut);
-  for (int pass = 0; pass < 3; pass++) {
-    const FLOAT fLift = (pass == 0) ? _fLift : ((pass == 1) ? IOSSELFIE_LIFT_HIGH : IOSSELFIE_LIFT_HIGHER);
-    for (int k = 0; k < IOSSELFIE_NUM_DIRS; k++) {
-      const FLOAT fHeading = fAway + aiSteps[k] * (360.0f / IOSSELFIE_NUM_DIRS) * (_bPhoneLeft ? -1.0f : 1.0f);
-      const FLOAT3D vDir = IOSSelfie_Flat(fHeading);
-      // the furthest the camera can go that way (the level in the way)
-      const FLOAT3D vFar = vEye + vDir * IOSSELFIE_CAM_MAX + FLOAT3D(0, fLift, 0);
-      const FLOAT fFree = IOSPhotoCam_ClearDist(vEye, vFar) - IOSSELFIE_CAM_CLEARANCE;
-      for (int d = 0; d < ctDist && afDist[d] <= IOSSELFIE_CAM_MAX; d++) {
-        const FLOAT3D vCam = vEye + vDir * afDist[d] + FLOAT3D(0, fLift, 0);
-        if ((vCam - vEye).Length() > fFree) break; // (and further that way)
-        // (never looking down too steeply: at the people, nor at the
-        // player, where a photo's aim is drawn towards them)
-        if (IOSSelfie_PitchDown(vCam, vAt) > IOSSELFIE_PITCH_DOWN_MAX
-            || IOSSelfie_PitchDown(vCam, vEye - FLOAT3D(0, 0.3f, 0)) > IOSSELFIE_PITCH_DOWN_MAX) continue;
-        IOSSelfieView v;
-        IOSSelfie_MakeView(v, vCam, vAt, 0.0f);
-        // (what it could be at best, before casting any rays)
-        if (IOSSelfie_Score(v, afDist[d], 1) - afLiftCost[pass] <= fBest + 0.001f) continue;
-        if (!IOSPhotoCam_RoomAt(vEye, vCam, IOSSELFIE_CAM_CLEARANCE)) continue;
-        const FLOAT fScore = IOSSelfie_Score(v, afDist[d], 0) - afLiftCost[pass];
-        if (fScore > fBest + 0.001f) {
-          fBest = fScore;
-          vBest = vCam;
+  // (near first; further only where nothing near will do)
+  for (int iRound = 0; iRound < 2 && fBest <= -1e7f; iRound++) {
+    const FLOAT fMax = iRound ? IOSSELFIE_CAM_MAX : IOSSELFIE_CAM_NEAR;
+    for (int pass = 0; pass < 3; pass++) {
+      const FLOAT fLift = (pass == 0) ? _fLift : ((pass == 1) ? IOSSELFIE_LIFT_HIGH : IOSSELFIE_LIFT_HIGHER);
+      for (int k = 0; k < IOSSELFIE_NUM_DIRS; k++) {
+        const FLOAT fHeading = fAway + aiSteps[k] * (360.0f / IOSSELFIE_NUM_DIRS) * (_bPhoneLeft ? -1.0f : 1.0f);
+        const FLOAT3D vDir = IOSSelfie_Flat(fHeading);
+        // the furthest the camera can go that way (the level in the way)
+        const FLOAT3D vFar = vEye + vDir * IOSSELFIE_CAM_MAX + FLOAT3D(0, fLift, 0);
+        const FLOAT fFree = IOSPhotoCam_ClearDist(vEye, vFar) - IOSSELFIE_CAM_CLEARANCE;
+        for (int d = 0; d < ctDist && afDist[d] <= fMax; d++) {
+          const FLOAT3D vCam = vEye + vDir * afDist[d] + FLOAT3D(0, fLift, 0);
+          if ((vCam - vEye).Length() > fFree) break; // (and further that way)
+          // (never looking down too steeply: at the people, nor at the
+          // player, where a photo's aim is drawn towards them)
+          if (IOSSelfie_PitchDown(vCam, vAt) > IOSSELFIE_PITCH_DOWN_MAX
+              || IOSSelfie_PitchDown(vCam, vEye - FLOAT3D(0, 0.3f, 0)) > IOSSELFIE_PITCH_DOWN_MAX) continue;
+          IOSSelfieView v;
+          IOSSelfie_MakeView(v, vCam, vAt, 0.0f);
+          // (what it could be at best, before casting any rays)
+          if (IOSSelfie_Score(v, afDist[d], 1) - afLiftCost[pass] <= fBest + 0.001f) continue;
+          if (!IOSPhotoCam_RoomAt(vEye, vCam, IOSSELFIE_CAM_CLEARANCE)) continue;
+          const FLOAT fScore = IOSSelfie_Score(v, afDist[d], 0) - afLiftCost[pass];
+          if (fScore > fBest + 0.001f) {
+            fBest = fScore;
+            vBest = vCam;
+          }
         }
       }
+      // (alone: no need to hold it up high)
+      if (fBest > -1e7f && _ctPeople == 1) break;
     }
-    // (alone: no need to hold it up high)
-    if (fBest > -1e7f && _ctPeople == 1) break;
   }
   IOSPhotoCam_SetLeftOut(NULL);
   if (fBest <= -1e7f) return 0;
