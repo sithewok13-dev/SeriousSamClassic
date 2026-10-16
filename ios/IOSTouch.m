@@ -81,7 +81,7 @@
 #define IOSTOUCH_WHEEL_NEEDLE_CLEAR 12.0
 #define IOSTOUCH_WHEEL_CANCEL (-2) // the "slice" of the gap at the bottom
 // MENU held this long opens its tray (tilt aiming's sensitivity and mode,
-// FPS, the keyboard); a tap opens the menu as it lifts. The tray's buttons
+// FPS, CAMERA, CHEAT, LEVEL, the keyboard); a tap opens the menu as it lifts. The tray's buttons
 // are IOSTOUCH_TRAY_STEP apart in a row.
 #define IOSTOUCH_MENU_HOLD 0.45
 #define IOSTOUCH_TRAY_STEP 50.0
@@ -155,10 +155,12 @@
 #define IOSTOUCH_SELFIE_HOLD 0.5
 
 // The cheat (sithewok): CHEAT held IOSTOUCH_CHEAT_HOLD switches it on or off
-// (a tap does nothing). While it's on, JUMP, USE and CROUCH held still that
-// long fly, go through walls (or stop), or start the level picker, which
-// then counts on one level every IOSTOUCH_LEVEL_STEP. Still: never further
-// than IOSTOUCH_CHEAT_STILL from where the finger went down. Flying, two
+// (a tap does nothing). While it's on, JUMP and USE held still that long fly
+// or go through walls (or stop); CROUCH only crouches. The tray's LEVEL
+// (there while the cheat is on, single player) held that long starts the
+// level picker, which then counts on one level every IOSTOUCH_LEVEL_STEP.
+// Still: never further than IOSTOUCH_CHEAT_STILL from where the finger went
+// down (LEVEL: never off it). Flying, two
 // quick still taps on JUMP land: each shorter than IOSTOUCH_CHEAT_TAP, the
 // second going down within IOSTOUCH_CHEAT_DOUBLE of the first one's lift
 // (the touches' own clock). The Jedi Knight port's values.
@@ -202,6 +204,7 @@ enum {
   KIND_CAMKIND,  // (PHOTO's ticks) ticks or unticks its kind of photo (ulAction: IOSCAPTURE_*), when the touch lifts on it
   KIND_CHEAT,    // CHEAT: held IOSTOUCH_CHEAT_HOLD, the cheat on or off; a tap does nothing
   KIND_CHEATSWITCH, // (MENU's tray) shows CHEAT and switches the cheat on, or leaves cheat mode, when the touch lifts on it
+  KIND_LEVELPICK,// (MENU's tray, the cheat on) held IOSTOUCH_CHEAT_HOLD, counts the levels; lifted on it, goes to the one counted
 };
 
 // which modes a button shows in
@@ -233,8 +236,9 @@ typedef struct {
 // under it: tilt aiming's sensitivity and mode (SENS, GYRO), FPS, which
 // shows or hides a frame rate readout by QUICK SAVE, CAMERA (the camera
 // symbol: shows or hides CAMERA; held, its options open in a row under the
-// tray: PHOTO, SELFIES, FREEZE, and PHOTO's ticks in one more under PHOTO)
-// and the keyboard, for the console (cheats). RESUME, in the middle, only
+// tray: PHOTO, SELFIES, FREEZE, and PHOTO's ticks in one more under PHOTO),
+// CHEAT (the cheat's switch), LEVEL (the level picker, only while the cheat
+// is on) and the keyboard, for the console (cheats). RESUME, in the middle, only
 // while the game is paused.
 enum {
   BTN_FIRE, BTN_ZOOM, BTN_CROUCH, BTN_USE, BTN_JUMP, BTN_BOMB,
@@ -243,7 +247,7 @@ enum {
   BTN_CAMERA,
   BTN_CHEAT,
   BTN_RESUME,
-  BTN_TRAYSENS, BTN_TRAYGYRO, BTN_TRAYFPS, BTN_TRAYCAM, BTN_TRAYCHEAT, BTN_TRAYKEYS, // MENU's tray (left to right), hidden unless it is open
+  BTN_TRAYSENS, BTN_TRAYGYRO, BTN_TRAYFPS, BTN_TRAYCAM, BTN_TRAYCHEAT, BTN_TRAYLEVEL, BTN_TRAYKEYS, // MENU's tray (left to right), hidden unless it is open
   BTN_CAMROW_PHOTO, BTN_CAMROW_SELFIES, BTN_CAMROW_FREEZE,           // CAMERA's options (left to right)
   BTN_CAMOPT_CLEAN, BTN_CAMOPT_HUD, BTN_CAMOPT_BTNS,                 // PHOTO's ticks (left to right)
   BTN_COUNT
@@ -268,6 +272,7 @@ static IOSTouchButton _aButtons[] = {
   [BTN_TRAYFPS]   = { "FPS",         KIND_FPS,      0,                      20.0, 0, SHOW_ALL },
   [BTN_TRAYCAM]   = { "",            KIND_CAMSWITCH, 0,                     20.0, 0, SHOW_ALL },
   [BTN_TRAYCHEAT] = { "CHEAT",       KIND_CHEATSWITCH, 0,                   20.0, 0, SHOW_ALL },
+  [BTN_TRAYLEVEL] = { "LEVEL",       KIND_LEVELPICK, 0,                     20.0, 0, SHOW_PLAY },
   [BTN_TRAYKEYS]  = { "",            KIND_KEYBOARD, IOSTOUCH_REQ_CONSOLE,   20.0, 0, SHOW_ALL },
   [BTN_CAMROW_PHOTO]   = { "PHOTO",      KIND_CAMROW,  0,                  20.0, 0, SHOW_ALL },
   [BTN_CAMROW_SELFIES] = { "SELFIES\n3", KIND_CAMROW,  0,                  20.0, 0, SHOW_ALL },
@@ -395,6 +400,10 @@ typedef struct {
 // keyboard: where the FPS readout keeps clear of), and the FPS readout's
 // centre
 static IOSTouchRect _rTrayBack, _rTrayKeysBack;
+// where the tray's row goes (the keyboard's x, the row's y, the screen's usable
+// left and right); whether it was placed with LEVEL in it
+static double _fTrayKeysX, _fTrayY, _fTrayLeft, _fTrayRight;
+static int _bTrayLevelPlaced = 0;
 // CAMERA's options row and PHOTO's ticks under it: their backings (points)
 static IOSTouchRect _rCamRowBack, _rCamOptBack;
 // CAMERA's burst counter (its middle; points), right of CAMERA or under it;
@@ -463,6 +472,52 @@ static void IOSTouch_WheelGeometry(double W, double H, double inLeft, double inT
   *pfCY = (top + bottom) * 0.5 + 4.0;
   *pfR1 = fmin(IOSTOUCH_WHEEL_R1_MAX, (bottom - top) * 0.5 - IOSTOUCH_WHEEL_POP - 6.0);
   *pfR0 = round(*pfR1 * IOSTOUCH_WHEEL_R0_FRAC);
+}
+
+// MENU's tray along its row (IOSTouch_LayoutButtons found where): the
+// keyboard under MENU, then LEVEL (if it shows: bLevel), CHEAT, CAMERA, FPS,
+// GYRO and SENS to the left, IOSTOUCH_TRAY_STEP apart; and CAMERA's options
+// under the tray's CAMERA, and PHOTO's ticks in one more under PHOTO, each
+// slid along to stay on the screen. LEVEL hidden sits under CHEAT (nothing
+// finds it there: IOSTouch_ButtonAt passes over hidden buttons).
+static void IOSTouch_PlaceTray(int bLevel)
+{
+  _bTrayLevelPlaced = bLevel != 0;
+  int ctLeft = 0; // buttons right of the one being placed
+  for (int i = BTN_TRAYKEYS; i >= BTN_TRAYSENS; i--) {
+    if (i == BTN_TRAYLEVEL && !bLevel) {
+      _aButtons[i].x = _fTrayKeysX - IOSTOUCH_TRAY_STEP;
+    }
+    else {
+      _aButtons[i].x = _fTrayKeysX - ctLeft * IOSTOUCH_TRAY_STEP;
+      ctLeft++;
+    }
+    _aButtons[i].y = _fTrayY;
+  }
+  _rTrayBack.bValid = 1;
+  _rTrayBack.x0 = _aButtons[BTN_TRAYSENS].x - 26;
+  _rTrayBack.y0 = _fTrayY - 26;
+  _rTrayBack.x1 = _fTrayKeysX + 26;
+  _rTrayBack.y1 = _fTrayY + 26;
+  _rTrayKeysBack = _rTrayBack;
+  _rTrayKeysBack.x0 = _fTrayKeysX - IOSTOUCH_TRAY_STEP - 26;
+
+  {
+    const double ry = _aButtons[BTN_TRAYCAM].y + 52;
+    const double rx = fmin(fmax(_aButtons[BTN_TRAYCAM].x, _fTrayLeft + IOSTOUCH_TRAY_STEP + 26), _fTrayRight - IOSTOUCH_TRAY_STEP - 26);
+    for (int i = BTN_CAMROW_PHOTO; i <= BTN_CAMROW_FREEZE; i++) {
+      _aButtons[i].x = rx + (i - BTN_CAMROW_SELFIES) * IOSTOUCH_TRAY_STEP;
+      _aButtons[i].y = ry;
+    }
+    _rCamRowBack = (IOSTouchRect){ 1, rx - IOSTOUCH_TRAY_STEP - 26, ry - 26, rx + IOSTOUCH_TRAY_STEP + 26, ry + 26 };
+    const double oy = ry + 52;
+    const double ox = fmin(fmax(_aButtons[BTN_CAMROW_PHOTO].x, _fTrayLeft + IOSTOUCH_TRAY_STEP + 26), _fTrayRight - IOSTOUCH_TRAY_STEP - 26);
+    for (int i = BTN_CAMOPT_CLEAN; i <= BTN_CAMOPT_BTNS; i++) {
+      _aButtons[i].x = ox + (i - BTN_CAMOPT_HUD) * IOSTOUCH_TRAY_STEP;
+      _aButtons[i].y = oy;
+    }
+    _rCamOptBack = (IOSTouchRect){ 1, ox - IOSTOUCH_TRAY_STEP - 26, oy - 26, ox + IOSTOUCH_TRAY_STEP + 26, oy + 26 };
+  }
 }
 
 // Places every button on a W x H point screen with these safe-area insets,
@@ -607,17 +662,18 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
   _aButtons[BTN_QUICKSAVE].y = _aButtons[BTN_QUICKLOAD].y = _aButtons[BTN_MENU].y = top + 26;
 
   // MENU's tray: a row just under the corner, the keyboard right below MENU
-  // (a held thumb slides straight down onto it), then FPS, GYRO and SENS
-  // to the left, IOSTOUCH_TRAY_STEP apart. Where BOMB, ZOOM or JUMP sits high
-  // in that corner (a smaller screen) the row moves left until it is clear of
-  // them -- or, if that never happens, to wherever it is furthest from them.
-  // (While open, the tray is on top and takes its own touches, but a touch
-  // meant for it mustn't land nearer one of those.)
+  // (a held thumb slides straight down onto it), then the rest to the left,
+  // IOSTOUCH_TRAY_STEP apart (IOSTouch_PlaceTray). Where BOMB, ZOOM or JUMP
+  // sits high in that corner (a smaller screen) the row moves left until it is
+  // clear of them -- or, if that never happens, to wherever it is furthest
+  // from them. (While open, the tray is on top and takes its own touches, but
+  // a touch meant for it mustn't land nearer one of those.) Measured with
+  // LEVEL in it, so the keyboard stays put whether or not LEVEL shows.
   {
     const IOSTouchButton *m = &_aButtons[BTN_MENU];
     const int aAvoid[3] = { BTN_BOMB, BTN_ZOOM, BTN_JUMP };
     const double ty = m->y + 52;
-    const double row = (BTN_TRAYKEYS - BTN_TRAYSENS) * IOSTOUCH_TRAY_STEP; // SENS to the keyboard
+    const double row = (BTN_TRAYKEYS - BTN_TRAYSENS) * IOSTOUCH_TRAY_STEP; // SENS to the keyboard, LEVEL too
     double kx = m->x, bestGap = -1e9;
     for (double x = m->x; x >= m->x - 240; x -= 4) {
       double gap = 1e9;
@@ -631,36 +687,11 @@ static void IOSTouch_LayoutButtons(double W, double H, double inLeft, double inT
       }
       if (gap >= 8) break;
     }
-    for (int i = BTN_TRAYSENS; i <= BTN_TRAYKEYS; i++) {
-      _aButtons[i].x = kx - (BTN_TRAYKEYS - i) * IOSTOUCH_TRAY_STEP;
-      _aButtons[i].y = ty;
-    }
-    _rTrayBack.bValid = 1;
-    _rTrayBack.x0 = kx - row - 26;
-    _rTrayBack.y0 = ty - 26;
-    _rTrayBack.x1 = kx + 26;
-    _rTrayBack.y1 = ty + 26;
-    _rTrayKeysBack = _rTrayBack;
-    _rTrayKeysBack.x0 = kx - IOSTOUCH_TRAY_STEP - 26;
-  }
-
-  // CAMERA's options: a row of three under the tray's CAMERA, and PHOTO's
-  // ticks in one more under PHOTO, each slid along to stay on the screen
-  {
-    const double ry = _aButtons[BTN_TRAYCAM].y + 52;
-    const double rx = fmin(fmax(_aButtons[BTN_TRAYCAM].x, left + IOSTOUCH_TRAY_STEP + 26), right - IOSTOUCH_TRAY_STEP - 26);
-    for (int i = BTN_CAMROW_PHOTO; i <= BTN_CAMROW_FREEZE; i++) {
-      _aButtons[i].x = rx + (i - BTN_CAMROW_SELFIES) * IOSTOUCH_TRAY_STEP;
-      _aButtons[i].y = ry;
-    }
-    _rCamRowBack = (IOSTouchRect){ 1, rx - IOSTOUCH_TRAY_STEP - 26, ry - 26, rx + IOSTOUCH_TRAY_STEP + 26, ry + 26 };
-    const double oy = ry + 52;
-    const double ox = fmin(fmax(_aButtons[BTN_CAMROW_PHOTO].x, left + IOSTOUCH_TRAY_STEP + 26), right - IOSTOUCH_TRAY_STEP - 26);
-    for (int i = BTN_CAMOPT_CLEAN; i <= BTN_CAMOPT_BTNS; i++) {
-      _aButtons[i].x = ox + (i - BTN_CAMOPT_HUD) * IOSTOUCH_TRAY_STEP;
-      _aButtons[i].y = oy;
-    }
-    _rCamOptBack = (IOSTouchRect){ 1, ox - IOSTOUCH_TRAY_STEP - 26, oy - 26, ox + IOSTOUCH_TRAY_STEP + 26, oy + 26 };
+    _fTrayKeysX = kx;
+    _fTrayY = ty;
+    _fTrayLeft = left;
+    _fTrayRight = right;
+    IOSTouch_PlaceTray(_bTrayLevelPlaced);
   }
 
   // The FPS readout where the keyboard button used to be, left of QUICK SAVE:
@@ -891,8 +922,8 @@ typedef struct {
   double wheelOriginX, wheelOriginY;
   double wheelAim;
   unsigned int uSeq;    // the order the touches went down in (IOSTouch_WheelPointed: the newest finger)
-  // The cheat: CHEAT's hold, or JUMP's, USE's or CROUCH's, is over (done, slid, or nothing to do); the level
-  // picker's count while this finger holds CROUCH (0: not counting)
+  // The cheat: CHEAT's hold, or JUMP's, USE's or the tray's LEVEL's, is over (done, slid, or nothing to do);
+  // the level picker's count while this finger holds LEVEL (0: not counting)
   int bCheatDone;
   int iLevelCount;
 } IOSTouchSlot;
@@ -929,15 +960,16 @@ static double _tCameraAsked = 0.0;
 static float _fCameraRing = 0.0f, _fCamSwitchRing = 0.0f; // (and the tray's CAMERA's, held to open its options)
 // The cheat (sithewok): its button showing (kept in the app's settings); on
 // (never kept: off each time the app opens); flying; through walls. CHEAT's
-// ring, and JUMP's, USE's and CROUCH's; the level picker's count showing on
-// CROUCH (0: none) and the level picked, for the main loop; when the last
+// ring, and JUMP's and USE's, and the tray's LEVEL's; the level picker's
+// count showing on LEVEL (0: none) and the level picked, for the main loop; when the last
 // quick still JUMP tap lifted (the touches' clock; flying, a second one soon
 // after lands); the weapon to put back in hand once a picked level has
 // started (-1: none), the level that was on then and when it was picked;
 // haptic ticks the view still has to give; the last level seen.
 static int _bShowCheat = 0, _bCheatOn = 0, _bFlying = 0, _bNoclip = 0;
 static float _fCheatRing = 0.0f;
-static float _afCheatActRing[3] = { 0.0f, 0.0f, 0.0f }; // JUMP, USE, CROUCH
+static float _afCheatActRing[2] = { 0.0f, 0.0f }; // JUMP, USE
+static float _fLevelRing = 0.0f;
 static int _iLevelShown = 0, _iLevelPicked = 0;
 static double _tJumpTapLift = -1.0;
 static int _iCheatCarry = -1;
@@ -1013,6 +1045,13 @@ static void IOSTouch_GyroNextSens(void)
   _iGyroSens = (_iGyroSens + 1) % IOSTOUCH_GYRO_NUM_SENS;
 }
 
+// Whether the tray's LEVEL is in the tray: the cheat on, playing a game that
+// has levels to pick (single player)
+static int IOSTouch_LevelPickShows(void)
+{
+  return _bCheatOn && _hud.bCheatAllowed && _hud.ctLevels > 0 && _iMode == IOSTOUCH_GAMEPLAY;
+}
+
 // Whether a button shows now. A selfie and the cinematic burst hide them
 // all; Action Freeze all but CAMERA.
 static int IOSTouch_IsShown(int button)
@@ -1025,6 +1064,7 @@ static int IOSTouch_IsShown(int button)
   if (button == BTN_CAMERA) return _bShowCamera;
   if (button == BTN_CHEAT) return _bShowCheat;
   if (button == BTN_QUICKSAVE || button == BTN_QUICKLOAD) return !_hud.bNoSaves;
+  if (button == BTN_TRAYLEVEL) return _bTrayOpen && IOSTouch_LevelPickShows();
   if (button >= BTN_TRAYSENS && button <= BTN_TRAYKEYS) return _bTrayOpen;
   if (button >= BTN_CAMROW_PHOTO && button <= BTN_CAMROW_FREEZE) return _bTrayOpen && _bCamRowOpen;
   if (button >= BTN_CAMOPT_CLEAN && button <= BTN_CAMOPT_BTNS) return _bTrayOpen && _bCamRowOpen && _bCamKindsOpen;
@@ -1059,6 +1099,7 @@ static int IOSTouch_ButtonAt(double x, double y)
     if (!IOSTouch_IsShown(aiRows[k][0]) || IOSTouch_DistToSegment(x, y, l->x, l->y, r->x, r->y) > 26.0) continue;
     for (int i = aiRows[k][0]; i <= aiRows[k][1]; i++) {
       const double d = fabs(x - _aButtons[i].x);
+      if (!IOSTouch_IsShown(i)) continue; // (the tray's LEVEL while the cheat is off)
       if (best < 0 || d < bestDist) {
         best = i;
         bestDist = d;
@@ -1189,6 +1230,11 @@ static void IOSTouch_SetTrayOpen(int bOpen)
       if (!s->touch || s->role != ROLE_BUTTON) continue;
       if (IOSTouch_IsTrayButton(s->button)) {
         if (_aButtonHeld[s->button] > 0) _aButtonHeld[s->button]--;
+        if (s->button == BTN_TRAYLEVEL && s->iLevelCount > 0) {
+          // (the level picker counting: it stops, picking nothing)
+          _iLevelShown = 0;
+          IOS_ShowCameraMessage("No level picked");
+        }
         s->role = ROLE_IGNORED;
       }
       s->trayButton = -1;
@@ -1448,6 +1494,7 @@ static void IOSTouch_UseCameraOption(int button)
 }
 
 static void IOSTouch_UseCheatSwitch(void); // (the cheat, below)
+static void IOSTouch_LevelHint(void);
 
 // A tray button picked: it does its thing, and the tray closes -- except
 // after GYRO and SENS, which stay for another tap to go on to the next (with
@@ -1464,6 +1511,10 @@ static void IOSTouch_UseTrayButton(int button)
   }
   else if (kind == KIND_CHEATSWITCH) {
     IOSTouch_UseCheatSwitch();
+  }
+  else if (kind == KIND_LEVELPICK) {
+    IOSTouch_LevelHint(); // (a tap, or MENU's thumb slid onto it: only held does it count; the tray stays)
+    return;
   }
   else if (kind == KIND_KEYBOARD) {
     _iRequests |= _aButtons[button].ulAction; // the console, with the iOS keyboard
@@ -1552,8 +1603,9 @@ static int _ctWheelTicks = 0;
 // tray's CHEAT: shows it and switches the cheat on (with one of Sam's lines),
 // or leaves cheat mode (off, CHEAT gone); the word typed in the console: on
 // (CHEAT shows, with Sam's line, if it was gone), or off (CHEAT goes). While
-// it's on, JUMP, USE and CROUCH held still: fly, through walls, the level
-// picker (IOSTOUCH_CHEAT_HOLD and the rest).
+// it's on, JUMP and USE held still: fly, through walls; the tray's LEVEL
+// held: the level picker (IOSTOUCH_CHEAT_HOLD and the rest). CROUCH only
+// crouches: held still behind cover, it mustn't change the level.
 
 static void IOSTouch_CheatNotAllowed(void)
 {
@@ -1642,25 +1694,30 @@ int IOSTouch_TakeLevelPick(void)
   return i;
 }
 
-// JUMP, USE, CROUCH: 0, 1, 2 (the cheat's holds on them); -1 any other
+// JUMP, USE: 0, 1 (the cheat's holds on them); -1 any other
 static int IOSTouch_CheatActOf(int button)
 {
-  return button == BTN_JUMP ? 0 : button == BTN_USE ? 1 : button == BTN_CROUCH ? 2 : -1;
+  return button == BTN_JUMP ? 0 : button == BTN_USE ? 1 : -1;
 }
 
-// Whether the holds on JUMP, USE and CROUCH do the cheat's things now
+// Whether the holds on JUMP, USE and the tray's LEVEL do the cheat's things now
 static int IOSTouch_CheatCanAct(void)
 {
   return _bCheatOn && _hud.bCheatAllowed && _iMode == IOSTOUCH_GAMEPLAY && _iCamStage == CAM_NONE && !_bWheelOpen;
 }
 
-// A finger moved away from where it went down on CHEAT, JUMP, USE or CROUCH:
-// no hold there (and the level picker stops, picking nothing)
+// A finger moved away from where it went down on CHEAT, JUMP or USE: no
+// hold there. Off the tray's LEVEL: the level picker stops, picking nothing.
 static void IOSTouch_CheatMoved(IOSTouchSlot *s, double x, double y)
 {
   if (s->role != ROLE_BUTTON || s->bCheatDone) return;
-  if (s->button != BTN_CHEAT && IOSTouch_CheatActOf(s->button) < 0) return;
-  if (hypot(x - s->xDown, y - s->yDown) < IOSTOUCH_CHEAT_STILL) return;
+  if (s->button == BTN_TRAYLEVEL) {
+    if (IOSTouch_IsOnButton(x, y, BTN_TRAYLEVEL)) return;
+  }
+  else {
+    if (s->button != BTN_CHEAT && IOSTouch_CheatActOf(s->button) < 0) return;
+    if (hypot(x - s->xDown, y - s->yDown) < IOSTOUCH_CHEAT_STILL) return;
+  }
   s->bCheatDone = 1;
   if (s->iLevelCount > 0) {
     s->iLevelCount = 0;
@@ -1669,13 +1726,26 @@ static void IOSTouch_CheatMoved(IOSTouchSlot *s, double x, double y)
   }
 }
 
-// A finger lifted from CHEAT, JUMP, USE or CROUCH: the level picked; JUMP's
-// quick taps, two of which land a flight
+// The tray's LEVEL tapped: what it does
+static void IOSTouch_LevelHint(void)
+{
+  IOS_ShowCameraMessage("Hold LEVEL to count levels");
+}
+
+// A finger lifted from CHEAT, JUMP, USE or the tray's LEVEL: the level
+// picked (the tray closes), or LEVEL's hint after a tap; JUMP's quick taps,
+// two of which land a flight
 static void IOSTouch_CheatLifted(IOSTouchSlot *s, double x, double y, int bCancelled, double tTouch)
 {
   if (s->role != ROLE_BUTTON) return;
-  if (s->button == BTN_CROUCH && s->iLevelCount > 0) {
-    if (!bCancelled && IOSTouch_CheatCanAct()) {
+  if (s->button == BTN_TRAYLEVEL && s->iLevelCount == 0 && !s->bCheatDone && !bCancelled
+      && IOSTouch_IsOnButton(x, y, BTN_TRAYLEVEL)) {
+    IOSTouch_LevelHint();
+  }
+  if (s->button == BTN_TRAYLEVEL && s->iLevelCount > 0) {
+    const int bPick = !bCancelled && IOSTouch_IsOnButton(x, y, BTN_TRAYLEVEL) && IOSTouch_CheatCanAct()
+                      && IOSTouch_IsShown(BTN_TRAYLEVEL);
+    if (bPick) {
       _iLevelPicked = s->iLevelCount;
       _iRequests |= IOSTOUCH_REQ_LEVEL;
       _iCheatCarry = _wpn.bValid ? _wpn.iWanted : -1; // (in hand again once there)
@@ -1690,6 +1760,10 @@ static void IOSTouch_CheatLifted(IOSTouchSlot *s, double x, double y, int bCance
     }
     s->iLevelCount = 0;
     _iLevelShown = 0;
+    if (bPick) {
+      s->role = ROLE_IGNORED; // (already let go of: the tray closing mustn't again)
+      IOSTouch_SetTrayOpen(0);
+    }
   }
   if (s->button == BTN_JUMP && _bFlying && !bCancelled && tTouch - s->tDownTouch < IOSTOUCH_CHEAT_TAP
       && hypot(x - s->xDown, y - s->yDown) < IOSTOUCH_CHEAT_STILL) {
@@ -1706,11 +1780,14 @@ static void IOSTouch_CheatLifted(IOSTouchSlot *s, double x, double y, int bCance
   }
 }
 
-// Once a frame: the holds on CHEAT, JUMP, USE and CROUCH, timed as QUICK
+// Once a frame: the holds on CHEAT, JUMP, USE and the tray's LEVEL, timed as QUICK
 // SAVE's are (known: when the previous tick ran); a new level; the weapon
 // to put back in hand after a level was picked
 static void IOSTouch_TickCheat(double now, double known)
 {
+  // the tray with LEVEL in it while it shows, without it otherwise (the view
+  // moves its buttons along as it sees this changed)
+  if (IOSTouch_LevelPickShows() != _bTrayLevelPlaced) IOSTouch_PlaceTray(IOSTouch_LevelPickShows());
   // a new level (started or loaded): no flying or noclip in it to begin with
   if (_hud.uWorld != _uWorldSeen) {
     _uWorldSeen = _hud.uWorld;
@@ -1731,8 +1808,8 @@ static void IOSTouch_TickCheat(double now, double known)
       _iCheatCarry = -1;
     }
   }
-  float fCheatRing = 0.0f;
-  float afAct[3] = { 0.0f, 0.0f, 0.0f };
+  float fCheatRing = 0.0f, fLevelRing = 0.0f;
+  float afAct[2] = { 0.0f, 0.0f };
   for (int i = 0; i < IOSTOUCH_MAX_TOUCHES; i++) {
     IOSTouchSlot *s = &_aSlots[i];
     if (!s->touch || s->role != ROLE_BUTTON || s->bCheatDone) continue;
@@ -1751,21 +1828,23 @@ static void IOSTouch_TickCheat(double now, double known)
       }
       continue;
     }
-    const int k = IOSTouch_CheatActOf(s->button);
-    if (k < 0) continue;
-    // nothing to do: the cheat off; JUMP while flying (holding it rises) or
-    // going through walls; CROUCH with no levels to pick (a network game)
-    if (!IOSTouch_CheatCanAct() || (k == 0 && (_bFlying || _bNoclip)) || (k == 2 && _hud.ctLevels <= 0)) {
-      if (s->iLevelCount > 0) _iLevelShown = 0;
-      s->iLevelCount = 0;
-      s->bCheatDone = 1;
-      continue;
-    }
-    if (held < IOSTOUCH_CHEAT_HOLD) {
-      afAct[k] = fmaxf(afAct[k], fRing);
-      continue;
-    }
-    if (k == 2) {
+    if (s->button == BTN_TRAYLEVEL) {
+      // nothing to do, or no more: LEVEL gone (the cheat off, the tray
+      // closed) or slid off, or the cheat can't act (the level picker
+      // stops, picking nothing)
+      if (!IOSTouch_IsShown(BTN_TRAYLEVEL) || !IOSTouch_CheatCanAct() || !IOSTouch_IsOnButton(s->x, s->y, BTN_TRAYLEVEL)) {
+        if (s->iLevelCount > 0) {
+          _iLevelShown = 0;
+          IOS_ShowCameraMessage("No level picked");
+        }
+        s->iLevelCount = 0;
+        s->bCheatDone = 1;
+        continue;
+      }
+      if (held < IOSTOUCH_CHEAT_HOLD) {
+        fLevelRing = fmaxf(fLevelRing, fRing);
+        continue;
+      }
       // the level picker: 1 at once, then one more every IOSTOUCH_LEVEL_STEP,
       // round again after the last
       const int n = 1 + (int)((held - IOSTOUCH_CHEAT_HOLD) / IOSTOUCH_LEVEL_STEP) % _hud.ctLevels;
@@ -1777,6 +1856,18 @@ static void IOSTouch_TickCheat(double now, double known)
         snprintf(str, sizeof(str), "Level %d of %d", n, _hud.ctLevels);
         IOS_ShowCameraMessage(str);
       }
+      continue;
+    }
+    const int k = IOSTouch_CheatActOf(s->button);
+    if (k < 0) continue;
+    // nothing to do: the cheat off; JUMP while flying (holding it rises) or
+    // going through walls
+    if (!IOSTouch_CheatCanAct() || (k == 0 && (_bFlying || _bNoclip))) {
+      s->bCheatDone = 1;
+      continue;
+    }
+    if (held < IOSTOUCH_CHEAT_HOLD) {
+      afAct[k] = fmaxf(afAct[k], fRing);
       continue;
     }
     s->bCheatDone = 1;
@@ -1792,7 +1883,8 @@ static void IOSTouch_TickCheat(double now, double known)
     }
   }
   _fCheatRing = fCheatRing;
-  for (int k = 0; k < 3; k++) _afCheatActRing[k] = afAct[k];
+  _fLevelRing = fLevelRing;
+  for (int k = 0; k < 2; k++) _afCheatActRing[k] = afAct[k];
 }
 
 // The game holds still while the weapon wheel is open, while iOS asks for
@@ -2968,8 +3060,8 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
       else if (b->kind == KIND_PRESS) {
         ulLifted |= b->ulAction; // never held, so the game gets it as one press
       }
-      else if (IOSTouch_IsTrayButton(s->button) && !(s->button == BTN_TRAYCAM && s->bFired)) {
-        IOSTouch_UseTrayButton(s->button); // (not the tray's CAMERA once held: that opened its options)
+      else if (IOSTouch_IsTrayButton(s->button) && !(s->button == BTN_TRAYCAM && s->bFired) && s->button != BTN_TRAYLEVEL) {
+        IOSTouch_UseTrayButton(s->button); // (not the tray's CAMERA once held: that opened its options; LEVEL: IOSTouch_CheatLifted)
       }
       else if (b->kind == KIND_MENU && !s->bFired) {
         _iRequests |= b->ulAction; // a tap: the menu
@@ -3416,7 +3508,8 @@ static void IOSTouch_ResetTouches(int bReading)
   _fCamSwitchRing = 0.0f;
   // and the cheat's holds end (the level picker picking nothing)
   _fCheatRing = 0.0f;
-  _afCheatActRing[0] = _afCheatActRing[1] = _afCheatActRing[2] = 0.0f;
+  _afCheatActRing[0] = _afCheatActRing[1] = 0.0f;
+  _fLevelRing = 0.0f;
   _iLevelShown = 0;
   IOSTouch_ResetShared(bReading);
 }
@@ -3597,16 +3690,19 @@ typedef struct {
   int bShowCameraSaved, iCameraKindsSaved, iSelfieShotsSaved, bFreezeSaved;
   int iCamLabels;
   // The cheat: CHEAT's emblem (a bomb: its body and cap, its fuse and spark)
-  // and ring; JUMP's, USE's and CROUCH's rings and small red labels (FLY,
-  // NOCLIP, LEVEL); what CROUCH says now (the level picker's count, 0: its
-  // name); whether CHEAT looks on; the haptic ticks and falls caught already
-  // felt and flashed; whether CHEAT showing is in the app's settings
+  // and ring; JUMP's and USE's rings and small red labels (FLY, NOCLIP); the
+  // tray's LEVEL's ring, and what it says now (the level picker's count, 0:
+  // its name); whether the tray's buttons were moved for LEVEL; whether CHEAT
+  // looks on; the haptic ticks and falls caught already felt and flashed;
+  // whether CHEAT showing is in the app's settings
   CAShapeLayer *cheatBody;
   CAShapeLayer *cheatFuse;
   CAShapeLayer *cheatRing;
-  CAShapeLayer *aCheatActRings[3];
-  UILabel *aCheatActLabels[3];
-  int iCrouchShown;
+  CAShapeLayer *aCheatActRings[2];
+  UILabel *aCheatActLabels[2];
+  CAShapeLayer *levelRing;
+  int iLevelLabelShown;
+  int bTrayLevelViews;
   int bCheatLookOn;
   int ctCheatTicksFelt;
   unsigned int ctCatchesFlashed, uCatchesWorld;
@@ -3947,9 +4043,9 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
   [aButtonViews[BTN_CHEAT].layer addSublayer:cheatFuse];
   cheatRing = IOSTouch_MakeHoldRing(r);
   [aButtonViews[BTN_CHEAT].layer addSublayer:cheatRing];
-  static const char *const astrAct[3] = { "FLY", "NOCLIP", "LEVEL" };
-  static const int aiAct[3] = { BTN_JUMP, BTN_USE, BTN_CROUCH };
-  for (int k = 0; k < 3; k++) {
+  static const char *const astrAct[2] = { "FLY", "NOCLIP" };
+  static const int aiAct[2] = { BTN_JUMP, BTN_USE };
+  for (int k = 0; k < 2; k++) {
     const CGFloat ra = _aButtons[aiAct[k]].radius;
     aCheatActRings[k] = IOSTouch_MakeHoldRing(ra);
     [aButtonViews[aiAct[k]].layer addSublayer:aCheatActRings[k]];
@@ -3965,8 +4061,11 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
     [aButtonViews[aiAct[k]] addSubview:l];
     aCheatActLabels[k] = l;
   }
+  levelRing = IOSTouch_MakeHoldRing(_aButtons[BTN_TRAYLEVEL].radius);
+  [aButtonViews[BTN_TRAYLEVEL].layer addSublayer:levelRing];
   cheatTick = [[UISelectionFeedbackGenerator alloc] init];
-  iCrouchShown = 0;
+  iLevelLabelShown = 0;
+  bTrayLevelViews = _bTrayLevelPlaced;
   bCheatLookOn = -1;
   ctCheatTicksFelt = _ctCheatTicks;
   ctCatchesFlashed = 0;
@@ -3980,24 +4079,35 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
 - (void)refreshCheat
 {
   [self setRing:cheatRing progress:_fCheatRing];
-  for (int k = 0; k < 3; k++) [self setRing:aCheatActRings[k] progress:_afCheatActRing[k]];
-  // the red labels while the holds do the cheat's things (LEVEL only with levels to pick)
+  for (int k = 0; k < 2; k++) [self setRing:aCheatActRings[k] progress:_afCheatActRing[k]];
+  [self setRing:levelRing progress:_fLevelRing];
+  // the red labels while the holds do the cheat's things
   const int bActs = _bCheatOn && _hud.bCheatAllowed && _iMode == IOSTOUCH_GAMEPLAY;
-  for (int k = 0; k < 3; k++) {
-    const int bShow = bActs && (k != 2 || _hud.ctLevels > 0);
-    if (aCheatActLabels[k].hidden == bShow) aCheatActLabels[k].hidden = !bShow;
+  for (int k = 0; k < 2; k++) {
+    if (aCheatActLabels[k].hidden == bActs) aCheatActLabels[k].hidden = !bActs;
   }
-  // CROUCH counts the levels while it picks
-  if (iCrouchShown != _iLevelShown) {
-    iCrouchShown = _iLevelShown;
-    UILabel *l = aButtonViews[BTN_CROUCH];
+  // the tray's buttons where they now are, with LEVEL in the row or not
+  // (IOSTouch_PlaceTray: CAMERA's options under the tray's CAMERA move too)
+  if (bTrayLevelViews != _bTrayLevelPlaced) {
+    bTrayLevelViews = _bTrayLevelPlaced;
+    for (int i = BTN_TRAYSENS; i <= BTN_CAMOPT_BTNS; i++) {
+      aButtonViews[i].center = CGPointMake(_aButtons[i].x, _aButtons[i].y);
+    }
+    trayBack.frame = CGRectMake(_rTrayBack.x0, _rTrayBack.y0, _rTrayBack.x1 - _rTrayBack.x0, _rTrayBack.y1 - _rTrayBack.y0);
+    camRowBack.frame = CGRectMake(_rCamRowBack.x0, _rCamRowBack.y0, _rCamRowBack.x1 - _rCamRowBack.x0, _rCamRowBack.y1 - _rCamRowBack.y0);
+    camOptBack.frame = CGRectMake(_rCamOptBack.x0, _rCamOptBack.y0, _rCamOptBack.x1 - _rCamOptBack.x0, _rCamOptBack.y1 - _rCamOptBack.y0);
+  }
+  // the tray's LEVEL counts the levels while it picks
+  if (iLevelLabelShown != _iLevelShown) {
+    iLevelLabelShown = _iLevelShown;
+    UILabel *l = aButtonViews[BTN_TRAYLEVEL];
     if (_iLevelShown > 0) {
       l.text = [NSString stringWithFormat:@"%d", _iLevelShown];
-      l.font = [UIFont boldSystemFontOfSize:18];
+      l.font = [UIFont boldSystemFontOfSize:16];
     }
     else {
-      l.text = [NSString stringWithUTF8String:_aButtons[BTN_CROUCH].label];
-      l.font = [UIFont boldSystemFontOfSize:IOSTouch_FontSize(_aButtons[BTN_CROUCH].label, _aButtons[BTN_CROUCH].radius)];
+      l.text = [NSString stringWithUTF8String:_aButtons[BTN_TRAYLEVEL].label];
+      l.font = [UIFont boldSystemFontOfSize:IOSTouch_FontSize(_aButtons[BTN_TRAYLEVEL].label, _aButtons[BTN_TRAYLEVEL].radius)];
     }
   }
   // CHEAT: gold and orange while on, grey while off
@@ -4687,10 +4797,11 @@ static CGImageRef IOSTouch_MakeIconImage(const unsigned char *pub, int w, int h)
     l.text = [NSString stringWithUTF8String:str];
     l.font = [UIFont boldSystemFontOfSize:IOSTouch_FontSize(str, _aButtons[BTN_BOMB].radius)];
   }
-  // ZOOM and BOMB come and go, the tray opens, the readout counts
+  // ZOOM, BOMB and the tray's LEVEL come and go, the tray opens, the readout counts
   const int iCamNow = _iCamStage * 64 + _bCamRowOpen * 2 + _bCamKindsOpen + (_pBurstTouch != NULL) * 4 + _bShowCamera * 8
                      + (_hud.bNoSaves != 0) * 16 + _bShowCheat * 32;
   if (aButtonViews[BTN_ZOOM].hidden == IOSTouch_IsShown(BTN_ZOOM) || aButtonViews[BTN_BOMB].hidden == IOSTouch_IsShown(BTN_BOMB)
+      || aButtonViews[BTN_TRAYLEVEL].hidden == IOSTouch_IsShown(BTN_TRAYLEVEL)
       || _bTrayOpen != bTrayWasOpen || _iFpsShown != iFpsWas || iCamNow != iCamWas) {
     [self refreshButtonLooks];
   }

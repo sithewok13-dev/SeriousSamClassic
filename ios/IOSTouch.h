@@ -94,7 +94,11 @@
        (tilt aiming's sensitivity: 1.0x, 1.5x, 2.0x, 3.0x; 1.5x to begin
        with), GYRO (tilt aiming: OFF, TOUCH, ALWAYS; lit while on), FPS
        (shows or hides a frame rate readout by QUICK SAVE), CAMERA (shows
-       or hides CAMERA; held, its options open in a row under the tray) and
+       or hides CAMERA; held, its options open in a row under the tray),
+       CHEAT (the sithewok cheat's switch), LEVEL (only while the cheat is
+       on, single player: held 0.5 s it counts the levels, 1, 2, ... every
+       0.4 s; lifted on it, that level starts; slid off, or the tray
+       closed, nothing; a tap only says to hold it) and
        the keyboard (opens the console with the iOS keyboard, for cheats;
        tapping it again closes both); all but the keyboard are remembered
        across launches. Slide the held thumb onto one, or lift and tap it;
