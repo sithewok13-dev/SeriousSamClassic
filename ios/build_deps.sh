@@ -2,7 +2,7 @@
 # Builds SDL2 and gl4es as static iOS (arm64) libraries into $1.
 set -ex
 DEPS="$1"
-: "${IOS_MIN:=14.0}" "${SDL_TAG:=release-2.30.8}" "${GL4ES_SHA:=ec16bedd8819c475326f4f1a3063772c6d986e06}"
+: "${IOS_MIN:=15.0}" "${SDL_TAG:=release-2.30.8}" "${GL4ES_SHA:=ec16bedd8819c475326f4f1a3063772c6d986e06}"
 WORK="${RUNNER_TEMP:-/tmp}/ios-deps-src"
 rm -rf "$WORK"; mkdir -p "$WORK" "$DEPS"
 IOSFLAGS=(-G Ninja -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64

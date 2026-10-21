@@ -37,7 +37,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IOS_MIN: "14.0"
+  # App Store Connect requires iOS 15 or later from April 2027.
+  IOS_MIN: "15.0"
   SDL_TAG: release-2.30.8
   GL4ES_SHA: ec16bedd8819c475326f4f1a3063772c6d986e06
   # The tag a manual run was asked to release; empty for pushes and ordinary runs.
@@ -74,6 +75,17 @@ jobs:
         # the build steps don't need the token (git ls-remote of this public
         # repository works without it)
         persist-credentials: false
+
+    # The runner's default Xcode is older than App Store Connect accepts (it
+    # requires the iOS 26 SDK), so use the newest non-beta Xcode installed.
+    - name: Select newest Xcode
+      run: |
+        set -e
+        XCODE=$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)
+        echo "Using $XCODE"
+        sudo xcode-select -s "$XCODE/Contents/Developer"
+        xcodebuild -version
+        xcrun --sdk iphoneos --show-sdk-version
 
     # Before the build: a release needs a usable tag and notes written for it.
     - name: Check release tag and notes
