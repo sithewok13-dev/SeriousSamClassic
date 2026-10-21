@@ -13,7 +13,7 @@
 
 ## What you need
 
-- An **iPhone on iOS 14 or newer**.
+- An **iPhone on iOS 15 or newer**.
 - **Your own PC copy** of *Serious Sam: The First Encounter* or *The Second Encounter*. **No game files are included**: you copy the game's files from your PC to the app's folder in the Files app.
 - A **sideloading tool or signing service** (such as AltStore, SideStore, Sideloadly or Signulous) to install the `.ipa` file.
 

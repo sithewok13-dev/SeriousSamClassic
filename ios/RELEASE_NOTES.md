@@ -319,12 +319,12 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 - **The First Encounter has had less testing than The Second Encounter.** If something goes wrong in Sam FE, please report it.
 - **NETRICSA by touch needs the envelope**, so keep the HUD's messages box on.
 - **Leaving the app doesn't save your game**, only your settings.
-- **Limited testing so far:** Sam SE and Sam FE have each been played on one iPhone so far. Not tried yet: iPads; older iOS versions (both apps are built for iOS 14 and newer); game controllers, hardware keyboards, mice and trackpads; game files from other editions (*Serious Sam Classics: Revolution*, the HD remakes, CD and non-English versions); PC saves on the phone, or phone saves on PC; restoring a backup of your saves; whether installing a newer version with your sideloading tool keeps your files.
+- **Limited testing so far:** Sam SE and Sam FE have each been played on one iPhone so far. Not tried yet: iPads; older iOS versions (both apps are built for iOS 15 and newer); game controllers, hardware keyboards, mice and trackpads; game files from other editions (*Serious Sam Classics: Revolution*, the HD remakes, CD and non-English versions); PC saves on the phone, or phone saves on PC; restoring a backup of your saves; whether installing a newer version with your sideloading tool keeps your files.
 - **The HUD on narrower iPhones:** with the HUD set larger than normal, or the legacy HUD, a layout check found that the messages count or a boss's health bar can sit under QUICK SAVE, and the armour icon under the notch or Dynamic Island. On the smallest iPhones (the size of the first iPhone SE), the messages count and the boss's health bar can sit under QUICK SAVE at the normal HUD size too, and the open tray covers the CHEAT button. This hasn't been seen on a phone.
 
 ### Requirements
 
-- An **iPhone on iOS 14 or newer.** The apps are also marked for iPad, but neither has ever been installed or tried on one.
+- An **iPhone on iOS 15 or newer.** The apps are also marked for iPad, but neither has ever been installed or tried on one.
 - **Your own PC copy of the game**, for its game files. You'll need the computer it's installed on, to copy them to your iPhone.
   - For **Sam FE**, *Serious Sam: The First Encounter*: its six `.gro` files and its `Levels`, `Help` and `Demos` folders, listed under *Install*, about 380 MB in the copy this was tested with.
   - For **Sam SE**, *Serious Sam: The Second Encounter*: the eight `.gro` files listed under *Install* and the `Help` folder, about 410 MB in the copy this was tested with.
