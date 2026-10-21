@@ -44,6 +44,11 @@ foreach(_target ${ENGINELIB} ${GAMEMPLIB} ${ENTITIESMPLIB} ${SE_EXE})
   target_include_directories(${_target} PRIVATE ${SE_IOS_DIR})
 endforeach()
 target_include_directories(${ENGINELIB} PRIVATE ${GL4ES_ROOT}/include)
+# The "Game files needed" screen, shown when the game's files aren't in the
+# app's folder: pick the game folder or a .zip and it copies what's needed
+# (iosImportCore.c and iosImport.m are the Jedi Knight port's files, unchanged)
+target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSImportGame.c ${SE_IOS_DIR}/iosImportCore.c ${SE_IOS_DIR}/iosImport.m)
+set_source_files_properties(${SE_IOS_DIR}/iosImport.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-fno-ms-extensions")
 
 set_target_properties(${SE_EXE} PROPERTIES
   MACOSX_BUNDLE TRUE

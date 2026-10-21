@@ -47,6 +47,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #ifdef PLATFORM_IOS
 extern "C" const char *IOS_DocumentsDir(void);
 extern "C" void IOS_InstallBundledFile(const char *strName);
+extern "C" int IOS_ImportGameData(int bSE);
 extern "C" void IOS_StartOutputLog(void);
 #endif
 
@@ -898,6 +899,10 @@ ENGINE_API void SE_InitEngine(CTString strGameID)
 #ifdef PLATFORM_IOS
   {
     CTString strTest = (strGameID == "serioussamse") ? "SE1_00_Levels.gro" : "1_00_music.gro";
+    if (!_pFileSystem->Exists((const char *)(_fnmApplicationPath + strTest))) {
+      // the "Game files needed" screen: the player picks the game folder or a .zip
+      IOS_ImportGameData(strGameID == "serioussamse");
+    }
     if (!_pFileSystem->Exists((const char *)(_fnmApplicationPath + strTest))) {
       FatalError(TRANSV("Game data not found.\n\n"
         "Copy the files from your own copy of the game (all .gro files, plus the Help and Levels folders) "

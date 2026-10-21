@@ -36,6 +36,10 @@ for game in ("SamTFE", "SamTSE"):
   {
     CTString strTest = (strGameID == "serioussamse") ? "SE1_00_Levels.gro" : "1_00_music.gro";
     if (!_pFileSystem->Exists((const char *)(_fnmApplicationPath + strTest))) {
+      // the "Game files needed" screen: the player picks the game folder or a .zip
+      IOS_ImportGameData(strGameID == "serioussamse");
+    }
+    if (!_pFileSystem->Exists((const char *)(_fnmApplicationPath + strTest))) {
       FatalError(TRANSV("Game data not found.\\n\\n"
         "Copy the files from your own copy of the game (all .gro files, plus the Help and Levels folders) "
         "into Files > On My iPhone > this app, then start it again.\\n\\nMissing: %s"),
@@ -51,6 +55,7 @@ for game in ("SamTFE", "SamTSE"):
 #ifdef PLATFORM_IOS
 extern "C" const char *IOS_DocumentsDir(void);
 extern "C" void IOS_InstallBundledFile(const char *strName);
+extern "C" int IOS_ImportGameData(int bSE);
 #endif
 """, 'extern "C" const char *IOS_DocumentsDir')
 
