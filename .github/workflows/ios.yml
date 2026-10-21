@@ -19,7 +19,7 @@ name: iOS
 
 on:
   push:
-    branches: [ "ios" ]
+    branches: [ "ios", "exp/**" ]
   workflow_dispatch:
     inputs:
       release:
@@ -190,6 +190,7 @@ jobs:
   release:
     name: ${{ inputs.release != '' && format('Publish release {0}', inputs.release) || 'Publish to "iOS latest" release' }}
     needs: build
+    if: github.ref == 'refs/heads/ios' || inputs.release != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
