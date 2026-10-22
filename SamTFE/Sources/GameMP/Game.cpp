@@ -874,7 +874,7 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
   // tick): the degrees the phone turned (+ left) and tilted (+ up) since the
   // last call, straight into the rotation -- the mouse settings never apply
   if (_pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource!=NULL
-   && &pc==&_pGame->gm_apcPlayers[_pGame->gm_lpLocalPlayers[0].lp_iPlayer]) {
+   && &pc==&_pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource->pls_pcCharacter) {
     float fGyroYaw = 0.0f, fGyroPitch = 0.0f;
     IOSTouch_TakeGyro(&fGyroYaw, &fGyroPitch);
     paAction.pa_aRotation(1) += fGyroYaw;
@@ -1259,7 +1259,11 @@ void CGame::GameHandleTimer(void)
           CPlayerAction paAction;
           INDEX iCurrentPlayer = gm_lpLocalPlayers[ iPlayer].lp_iPlayer;
           CControls &ctrls = gm_actrlControls[ iCurrentPlayer];
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+          ctrls.CreateAction(gm_lpLocalPlayers[iPlayer].lp_pplsPlayerSource->pls_pcCharacter, paAction, FALSE);
+#else
           ctrls.CreateAction(gm_apcPlayers[iCurrentPlayer], paAction, FALSE);
+#endif
           // set the action in the client source object
           gm_lpLocalPlayers[ iPlayer].lp_pplsPlayerSource->SetAction(paAction);
 
@@ -2805,7 +2809,11 @@ void CGame::GameRedrawView( CDrawPort *pdpDrawPort, ULONG ulFlags)
           CPlayerAction paPreAction;
           INDEX iCurrentPlayer = gm_lpLocalPlayers[i].lp_iPlayer;
           CControls &ctrls = gm_actrlControls[ iCurrentPlayer];
+#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+          ctrls.CreateAction(gm_lpLocalPlayers[i].lp_pplsPlayerSource->pls_pcCharacter, paPreAction, TRUE);
+#else
           ctrls.CreateAction(gm_apcPlayers[iCurrentPlayer], paPreAction, TRUE);
+#endif
 
           // copy the local controls back
           memcpy(

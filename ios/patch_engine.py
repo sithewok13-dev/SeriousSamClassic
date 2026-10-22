@@ -541,7 +541,7 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
   // tick): the degrees the phone turned (+ left) and tilted (+ up) since the
   // last call, straight into the rotation -- the mouse settings never apply
   if (_pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource!=NULL
-   && &pc==&_pGame->gm_apcPlayers[_pGame->gm_lpLocalPlayers[0].lp_iPlayer]) {
+   && &pc==&_pGame->gm_lpLocalPlayers[0].lp_pplsPlayerSource->pls_pcCharacter) {
     float fGyroYaw = 0.0f, fGyroPitch = 0.0f;
     IOSTouch_TakeGyro(&fGyroYaw, &fGyroPitch);
     paAction.pa_aRotation(1) += fGyroYaw;
@@ -549,6 +549,27 @@ void CControls::CreateAction(const CPlayerCharacter &pc, CPlayerAction &paAction
   }
 #endif
 """, "IOSTouch_TakeGyro(")
+
+    # The actions are made with the character the player is in the game as
+    # (its player source's): the player entity finds itself by it to add up
+    # the turning (CPlayer's ctl_ComposeActionPacket), and in someone else's
+    # game that is the ID mixed with this copy's key (IOS_NetCharacter), not
+    # the stored one -- with the stored one the joining player's view never
+    # turned.
+    sub(p, "          ctrls.CreateAction(gm_apcPlayers[iCurrentPlayer], paAction, FALSE);\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+          ctrls.CreateAction(gm_lpLocalPlayers[iPlayer].lp_pplsPlayerSource->pls_pcCharacter, paAction, FALSE);
+#else
+          ctrls.CreateAction(gm_apcPlayers[iCurrentPlayer], paAction, FALSE);
+#endif
+""", "ctrls.CreateAction(gm_lpLocalPlayers[iPlayer].lp_pplsPlayerSource->pls_pcCharacter, paAction, FALSE);")
+    sub(p, "          ctrls.CreateAction(gm_apcPlayers[iCurrentPlayer], paPreAction, TRUE);\n",
+"""#if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
+          ctrls.CreateAction(gm_lpLocalPlayers[i].lp_pplsPlayerSource->pls_pcCharacter, paPreAction, TRUE);
+#else
+          ctrls.CreateAction(gm_apcPlayers[iCurrentPlayer], paPreAction, TRUE);
+#endif
+""", "ctrls.CreateAction(gm_lpLocalPlayers[i].lp_pplsPlayerSource->pls_pcCharacter, paPreAction, TRUE);")
 
     # The touch controls' USE never works the sniper scope (ZOOM does): with
     # the rifle held, the Use key toggles the scope when there is nothing to
