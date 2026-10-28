@@ -19,7 +19,7 @@ reads everything on a phone.
   fields, tap-to-join server list) and player IDs (mixed with a per-install key
   when joining someone else's game; saves keep the stored IDs).
   CHEAT (`sithewok`, modelled on the Jedi Knight port's) is `IOSCheat.h` (the action
-  bits), `IOSCheatGame.cpp` (level picker, Sam's lines, what the overlay needs), the
+  bits), `IOSCheatGame.cpp` (the levels and their names, Sam's lines, what the overlay needs), the
   overlay's cheat section, and hunks: `IOSCheat_*` in `Player.es` (god mode, ammo kept
   full, fly, noclip, pits caught), `IOSCheatFillAmmo` in all three `PlayerWeapons*.es`,
   the bits in `Game.cpp`, the typed word in `Console.cpp`, `sp_bIOSAllowCheats` in
@@ -64,8 +64,11 @@ reads everything on a phone.
   - Move stick where the left thumb lands; drag elsewhere to look.
   - QUICK SAVE / QUICK LOAD: a 0.3 s hold with a ring. Sliding off cancels; QUICK
     SAVE wins a tie.
-  - MENU: tap = game menu; hold 0.45 s = tray with SENS, GYRO, FPS, CAMERA, CHEAT,
-    LEVEL (only while the cheat is on, single player), keyboard.
+  - MENU: tap = game menu; hold 0.45 s = tray with LOOK, SENS, GYRO, FPS, CAMERA,
+    CHEAT, LEVEL (only while the cheat is on, single player), keyboard.
+  - LOOK: the drag's look speed, shown on it ("LOOK 1x"); a tap steps up 0.5, 0.75,
+    1, 1.25, 1.5, 2, 2.5, 3x (round to 0.5x); held 0.45 s (ring) back to 1x with a
+    toast and a haptic. Remembered.
   - CAMERA (top row): tap = photo, hold 0.5 s = selfie (1/3/5 photos; up to 48 nearest
     enemies posed in frames of their own animations, `IOSSELFIE_MAX_PEOPLE`), slide
     sideways = burst, slide down = Action Freeze, slide up = cinematic burst. The tray's
@@ -87,9 +90,10 @@ reads everything on a phone.
     Typing the word toggles it (and the button). While on: JUMP held still 0.5 s =
     fly (double-tap JUMP lands), USE = noclip; small red labels under them. CROUCH
     only crouches (held behind cover, it must never change the level). The tray's
-    LEVEL is the level picker: held 0.5 s it shows 1, then counts every 0.4 s with a
-    tick ("Level n of N", round again after the last); lift on it to go; slide off
-    or close the tray to cancel; a tap only says "Hold LEVEL to count levels".
+    LEVEL opens the list of the game's single-player levels (from the player's own
+    data: numbered, the level's name, its file; the one being played ticked) in the
+    cheat's gold; the game holds still while it's open; a tap on one goes there, the
+    X or a touch off the list closes it.
     Flying and noclip end at each new level. The button is remembered; the
     cheat starts off each launch. Network games: only with the host's ALLOW CHEATS.
   - Network games: the same controls, except QUICK SAVE / QUICK LOAD (only for the

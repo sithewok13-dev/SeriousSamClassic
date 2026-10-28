@@ -30,7 +30,9 @@ extern "C" int IOSCheatGame_Allowed(void)
 // The campaign's levels: single-player levels whose names start with their
 // number (The First Encounter's "01_Hatshepsut", The Second Encounter's
 // "1_1_Palenque"), in the order of their file names, as the game lists them
+// (LevelInfo.cpp reads each one's name from its .wld in the player's data)
 static CStaticStackArray<CTFileName> _afnmLevels;
+static CStaticStackArray<CTString> _astrLevelNames;
 static BOOL _bLevelsListed = FALSE;
 
 static void IOSCheatGame_ListLevels(void)
@@ -42,6 +44,7 @@ static void IOSCheatGame_ListLevels(void)
     const CTString strName = li.li_fnLevel.FileName();
     if (!(li.li_ulSpawnFlags&SPF_SINGLEPLAYER) || !isdigit((unsigned char)((const char *)strName)[0])) continue;
     _afnmLevels.Push() = li.li_fnLevel;
+    _astrLevelNames.Push() = li.li_strName.Undecorated();
   }
 }
 
@@ -50,6 +53,33 @@ extern "C" int IOSCheatGame_NumLevels(void)
   if (_gmRunningGameMode!=GM_SINGLE_PLAYER) return 0;
   IOSCheatGame_ListLevels();
   return _afnmLevels.Count();
+}
+
+// (a C string in a buffer of its own: it's handed to the overlay)
+static void IOSCheatGame_Copy(char *strDst, int ctDst, const char *strSrc)
+{
+  if (strDst==NULL || ctDst<=0) return;
+  strncpy(strDst, strSrc, ctDst-1);
+  strDst[ctDst-1] = 0;
+}
+
+extern "C" int IOSCheatGame_LevelInfo(int iLevel, char *strName, int ctName, char *strFile, int ctFile)
+{
+  if (iLevel<1 || iLevel>IOSCheatGame_NumLevels()) return 0;
+  IOSCheatGame_Copy(strName, ctName, (const char *)_astrLevelNames[iLevel-1]);
+  IOSCheatGame_Copy(strFile, ctFile, (const char *)_afnmLevels[iLevel-1]);
+  return 1;
+}
+
+extern "C" int IOSCheatGame_CurrentLevel(void)
+{
+  const int ctLevels = IOSCheatGame_NumLevels();
+  if (ctLevels==0 || !_pGame->gm_bGameOn) return 0;
+  const CTFileName fnmNow = _pNetwork->ga_World.wo_fnmFileName;
+  for (int i=0; i<ctLevels; i++) {
+    if (_afnmLevels[i]==fnmNow) return i+1;
+  }
+  return 0;
 }
 
 extern "C" int IOSCheatGame_GoToLevel(int iLevel)

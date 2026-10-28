@@ -90,20 +90,23 @@
        are found complete in the same frame, e.g. after a long one): never a
        save and a load from one press.
      - MENU: a tap opens the menu (as the finger lifts). Held until its ring
-       fills (0.45 s), it opens a small tray just under it instead: SENS
-       (tilt aiming's sensitivity: 1.0x, 1.5x, 2.0x, 3.0x; 1.5x to begin
-       with), GYRO (tilt aiming: OFF, TOUCH, ALWAYS; lit while on), FPS
-       (shows or hides a frame rate readout by QUICK SAVE), CAMERA (shows
-       or hides CAMERA; held, its options open in a row under the tray),
-       CHEAT (the sithewok cheat's switch), LEVEL (only while the cheat is
-       on, single player: held 0.5 s it counts the levels, 1, 2, ... every
-       0.4 s; lifted on it, that level starts; slid off, or the tray
-       closed, nothing; a tap only says to hold it) and
+       fills (0.45 s), it opens a small tray just under it instead: LOOK
+       (the drag's look speed: 0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x, 2.5x, 3x;
+       1x to begin with; held until its ring fills, 0.45 s, back to 1x),
+       SENS (tilt aiming's sensitivity: 1.0x, 1.5x, 2.0x, 3.0x; 1.5x to
+       begin with), GYRO (tilt aiming: OFF, TOUCH, ALWAYS; lit while on),
+       FPS (shows or hides a frame rate readout by QUICK SAVE), CAMERA
+       (shows or hides CAMERA; held, its options open in a row under the
+       tray), CHEAT (the sithewok cheat's switch), LEVEL (only while the
+       cheat is on, single player: opens the list of the game's levels, in
+       order with their names and files, over the game, which holds still
+       meanwhile; a tap on one starts it, the X or a touch off the list
+       closes it) and
        the keyboard (opens the console with the iOS keyboard, for cheats;
        tapping it again closes both); all but the keyboard are remembered
        across launches. Slide the held thumb onto one, or lift and tap it;
-       GYRO and SENS go on to the next setting and leave the tray open for
-       another tap, FPS, CAMERA and the keyboard close it, and so does a
+       LOOK, GYRO and SENS go on to the next setting and leave the tray open
+       for another tap, FPS, CAMERA and the keyboard close it, and so does a
        touch anywhere else. While it is open the FPS readout hides where
        the tray lies over it.
      - CAMERA, in the top row: a tap takes a photo of the game (of each
@@ -174,7 +177,7 @@ typedef struct IOSTouchHud {
   int bNoSaves;     /* no QUICK SAVE / QUICK LOAD: a network game, unless hosting a cooperative one */
   /* the cheat (sithewok, from the main loop): */
   int bCheatAllowed;          /* this game lets this phone's player cheat (alone, or the host allows it) */
-  int ctLevels;               /* the level picker's levels (0: none, a network game) */
+  int ctLevels;               /* the levels the tray's LEVEL lists (0: none, a network game) */
   unsigned int ctCatches;     /* falls caught so far (a soft flash each time it goes up) */
   unsigned int uWorld;        /* changes with every level started or loaded */
 } IOSTouchHud;
@@ -188,7 +191,7 @@ enum {
   IOSTOUCH_REQ_RESUME    = 1 << 4, /* unpause */
   IOSTOUCH_REQ_READMESSAGES = 1 << 5, /* mark every NETRICSA message read (a tap on the unread messages box) */
   IOSTOUCH_REQ_CHEATSOUND = 1 << 6, /* the cheat came on from the tray or the typed word: one of Sam's lines */
-  IOSTOUCH_REQ_LEVEL     = 1 << 7, /* the cheat's level picker: go to IOSTouch_TakeLevelPick() */
+  IOSTOUCH_REQ_LEVEL     = 1 << 7, /* the cheat's list of levels: go to IOSTouch_TakeLevelPick() */
 };
 
 /* Buttons as the game reads them once per tick (IOSTouchInput.ulButtons) */
@@ -266,8 +269,8 @@ void IOSTouch_SetWeapons(const IOSTouchWeapons *pw);
    shows its name instead). Kept for the process. */
 unsigned int IOSTouch_WantedIcons(double tNow);
 void IOSTouch_SetWeaponIcon(int iWeapon, const unsigned char *pubRGBA, int iWidth, int iHeight);
-/* Main thread: whether the weapon wheel is open in a game being played: the
-   game holds still (the local pause), draws no "Paused" and no HUD weapon row */
+/* Main thread: whether the weapon wheel (or the cheat's list of levels) is
+   open in a game being played: the game holds still (the local pause), draws no "Paused" and no HUD weapon row */
 int IOSTouch_HoldsGame(void);
 /* The cheat (sithewok, IOSCheat.h): its bits for local player 0's actions
    this tick (the app sets IOSCheat_pfnActionBits to it), the word typed in
