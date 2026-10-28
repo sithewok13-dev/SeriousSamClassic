@@ -410,6 +410,15 @@ static inline INDEX GridCoord(double d)
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == -1)
 """, "SDL_HINT_ACCELEROMETER_AS_JOYSTICK")
 
+    # ------------------------------------------------- sound on silent
+    # SDL's default audio session category (ambient) follows the phone's
+    # silent switch; playback, as the Half-Life and DOOM 3 ports use, doesn't
+    sub(p, """  SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+""",
+"""  SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+  SDL_SetHint(SDL_HINT_AUDIO_CATEGORY, "playback");
+""", "SDL_HINT_AUDIO_CATEGORY")
+
     # ------------------------------------------------- touch controls
     # The overlay is ios/IOSTouch.m; these feed what it reads into the game.
     # Buttons and the move stick go straight into the player's action for the
