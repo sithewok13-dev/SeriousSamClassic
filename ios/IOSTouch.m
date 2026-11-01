@@ -3589,7 +3589,10 @@ static NSString *IOSTouch_VersionText(void)
   id ver = [info objectForKey:@"CFBundleShortVersionString"];
   id build = [info objectForKey:@"CFBundleVersion"];
   if (![ver isKindOfClass:[NSString class]] || [ver length] == 0) ver = @"?";
-  if ([build isKindOfClass:[NSString class]] && [build length] > 0 && ![build isEqualToString:ver]) {
+  // Sam's version already ends in the build number (0.1.<run>): add it in
+  // brackets only when it isn't there
+  if ([build isKindOfClass:[NSString class]] && [build length] > 0 && ![build isEqualToString:ver] &&
+      ![ver hasSuffix:[@"." stringByAppendingString:build]]) {
     return [NSString stringWithFormat:@"v%@ (%@)", ver, build];
   }
   return [NSString stringWithFormat:@"v%@", ver];

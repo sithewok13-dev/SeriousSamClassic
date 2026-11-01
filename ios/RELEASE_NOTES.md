@@ -144,7 +144,7 @@ While it's open:
 | **Keyboard** (the keyboard symbol) | Opens the game's console with the iPhone keyboard, for console commands. |
 
 - SENS and GYRO show their setting on the button (for example *SENS 1.5x*, *GYRO OFF*).
-- Under the tray, in small dim letters, is the version of the app you're running, for example *v0.1.57 (57)*: the last number is the build, so you can tell which test build is on your phone. It's only a label, not a button. While CAMERA's options are open, it moves to the left to stay out of their way.
+- Under the tray, in small dim letters, is the version of the app you're running, for example *v0.1.57*: the last number is the build, so you can tell which test build is on your phone. It's only a label, not a button. While CAMERA's options are open, it moves to the left to stay out of their way.
 - Either keep your thumb down, slide it onto a tray button and lift, or lift first and then tap one.
 - Each tap on **SENS** or **GYRO** moves on to the next setting, and the tray stays open so you can tap again. The tray closes after **FPS**, the camera symbol, **CHEAT** or the keyboard, or when you touch anywhere else. That touch still counts: touching FIRE closes the tray and fires. Touching MENU again only closes it.
 - If you slide off MENU while holding it, nothing happens.

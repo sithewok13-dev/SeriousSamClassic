@@ -109,7 +109,7 @@
        for another tap, FPS, CAMERA and the keyboard close it, and so does a
        touch anywhere else. While it is open the FPS readout hides where
        the tray lies over it, and the app's version shows just under it in
-       small dim letters ("v0.1.57 (57)"; only words, not a button).
+       small dim letters ("v0.1.57"; only words, not a button).
      - CAMERA, in the top row: a tap takes a photo of the game (of each
        kind ticked in its options: clean, with the HUD, with the HUD and
        the buttons), held still 0.5 s a selfie, slid sideways a burst for as
