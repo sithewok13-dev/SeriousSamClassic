@@ -3333,6 +3333,31 @@ static int IOSTouch_FpsUnderTray(void)
   return hypot(dx, dy) < 4.0;
 }
 
+// The app's version (the view sets its words), shown while the tray is open:
+// the middle of its line (fHalfW wide each way), centred just below the
+// tray's backing. CAMERA's options open right under the tray's CAMERA, so
+// while they are open it moves left along the tray, into the room between
+// the tray's left end and them; if it doesn't fit there, it goes under them
+// instead (lower down, where it could lie over USE or JUMP on a small screen,
+// so only as a last resort). It is only words: not a button, nothing finds
+// it, and it moves nothing.
+#define IOSTOUCH_VERSION_H 12.0
+static void IOSTouch_VersionCentre(double fHalfW, double *px, double *py)
+{
+  *px = (_rTrayBack.x0 + _rTrayBack.x1) * 0.5;
+  *py = _rTrayBack.y1 + 4.0 + IOSTOUCH_VERSION_H * 0.5;
+  if (!_bCamRowOpen) return;
+  // (PHOTO's ticks sit lower, under the row, so only the row is in the way)
+  const double roomRight = _rCamRowBack.x0 - 4.0;
+  if (*px + fHalfW <= roomRight) return;
+  if (roomRight - _rTrayBack.x0 >= 2.0 * fHalfW) {
+    *px = fmax(_rTrayBack.x0 + fHalfW, (_rTrayBack.x0 + roomRight) * 0.5);
+    return;
+  }
+  const double y1 = _bCamKindsOpen ? fmax(_rCamRowBack.y1, _rCamOptBack.y1) : _rCamRowBack.y1;
+  *py = y1 + 4.0 + IOSTOUCH_VERSION_H * 0.5;
+}
+
 // ---------------------------------------------------------------- tilt aiming
 // The view starts and stops CoreMotion's updates (IOSTouch_GyroRunUpdates)
 // and hands each sample to IOSTouch_GyroSample, on the samples' own queue;
@@ -3555,6 +3580,21 @@ static void IOSTouch_ResetTouches(int bReading)
 // ...and the look speed (MENU's tray's LOOK; never set: 1x)
 #define IOSTOUCH_LOOKSCALE_DEFAULTS_KEY @"iosTouchLookScale"
 
+// The app's version as its Info.plist says (ios_app.cmake sets both):
+// "v0.1.57", with the build number after it, "v0.1.57 (57)", when that is
+// there and says something else
+static NSString *IOSTouch_VersionText(void)
+{
+  NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
+  id ver = [info objectForKey:@"CFBundleShortVersionString"];
+  id build = [info objectForKey:@"CFBundleVersion"];
+  if (![ver isKindOfClass:[NSString class]] || [ver length] == 0) ver = @"?";
+  if ([build isKindOfClass:[NSString class]] && [build length] > 0 && ![build isEqualToString:ver]) {
+    return [NSString stringWithFormat:@"v%@ (%@)", ver, build];
+  }
+  return [NSString stringWithFormat:@"v%@", ver];
+}
+
 // Tilt aiming's motion manager (one for the app, as Apple asks) and the
 // queue its samples are handled on
 static CMMotionManager *_pMotion = nil;
@@ -3677,6 +3717,7 @@ typedef struct {
   UIView *messagesBack;   // over the HUD's unread messages box while a finger is on it...
   CAShapeLayer *messagesRing; // ...and its hold's ring, round the box
   UIView *trayBack;       // behind MENU's tray
+  UILabel *versionLabel;  // the app's version, under the open tray
   UILabel *fpsLabel;      // the FPS readout...
   int iFpsLabel;          // ...the number it says (-1: none yet)
   int bFpsSaved;          // whether the app's settings say it shows
@@ -3883,6 +3924,20 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     trayBack.userInteractionEnabled = NO;
     trayBack.hidden = YES;
     [self insertSubview:trayBack belowSubview:aButtonViews[BTN_TRAYLOOK]];
+    // ...and the app's version, small and dim under it while it is open
+    // (placed in refreshButtonLooks; touches go through it)
+    versionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    versionLabel.textAlignment = NSTextAlignmentCenter;
+    versionLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.55];
+    versionLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
+    versionLabel.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.6];
+    versionLabel.shadowOffset = CGSizeMake(0, 1);
+    versionLabel.text = IOSTouch_VersionText();
+    [versionLabel sizeToFit];
+    versionLabel.bounds = CGRectMake(0, 0, versionLabel.bounds.size.width + 8, IOSTOUCH_VERSION_H);
+    versionLabel.userInteractionEnabled = NO;
+    versionLabel.hidden = YES;
+    [self insertSubview:versionLabel aboveSubview:trayBack];
     // GYRO and SENS say what they are set to on a second line (labels set
     // in refreshButtonLooks), sized for the longest
     IOSTouch_GyroSetup();
@@ -4408,6 +4463,14 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
     }
   }
   if (trayBack.hidden == _bTrayOpen) trayBack.hidden = !_bTrayOpen;
+  // the version, with the tray (aside from CAMERA's options when they are open)
+  if (_bTrayOpen) {
+    double vx, vy;
+    IOSTouch_VersionCentre(versionLabel.bounds.size.width * 0.5, &vx, &vy);
+    const CGPoint c = CGPointMake(vx, vy);
+    if (!CGPointEqualToPoint(versionLabel.center, c)) versionLabel.center = c;
+  }
+  if (versionLabel.hidden == _bTrayOpen) versionLabel.hidden = !_bTrayOpen;
 
   // The FPS readout (not while the open tray lies over it), and the app's
   // settings when it, or tilt aiming's mode or sensitivity, was changed
