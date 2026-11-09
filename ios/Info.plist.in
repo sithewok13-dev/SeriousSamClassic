@@ -52,6 +52,9 @@
 	<dict/>
 	<key>UIRequiresFullScreen</key>
 	<true/>
+	<!-- up to 120 frames a second on iPhones with ProMotion screens -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>UIStatusBarHidden</key>
 	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>

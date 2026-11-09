@@ -367,6 +367,10 @@ static void IOS_PushKey(SDL_Keycode iKey)
   SDL_PushEvent(&ev);
 }
 
+// (a frame of play, for the frame times in Output.log: ios/IOSGL.c)
+extern "C" void IOS_PerfDrawStart(int bInPlay);
+static int _bIOSPerfInPlay = 0;
+
 // Once a frame: tells the touch controls what the game is doing, and carries
 // out what the player asked for on them
 static void IOS_UpdateTouchControls(void)
@@ -388,6 +392,7 @@ static void IOS_UpdateTouchControls(void)
       iMode = _pNetwork->IsPaused() ? IOSTOUCH_PAUSED : IOSTOUCH_GAMEPLAY;
     }
   }
+  _bIOSPerfInPlay = (iMode==IOSTOUCH_GAMEPLAY);
   IOSTouchHud hud;
   IOS_GetHudState(&hud);
   // a network game: no selfies or Action Freeze (they pose the world), and
@@ -1209,6 +1214,9 @@ void DoGame(void)
 #if defined(PLATFORM_IOS) || defined(IOS_CAMERA_RIG)
     // the touch controls' CAMERA reads back this frame (IOSCapture.c)
     IOSCapture_FrameBegin(pdp->dp_Raster->ra_Width, pdp->dp_Raster->ra_Height);
+#endif
+#ifdef PLATFORM_IOS
+    IOS_PerfDrawStart(_bIOSPerfInPlay);
 #endif
     if( _gmRunningGameMode!=GM_NONE && !bMenuActive ) {
       // handle pretouching of textures and shadowmaps

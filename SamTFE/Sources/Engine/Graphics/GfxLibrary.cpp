@@ -58,7 +58,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #endif
 
 #ifdef PLATFORM_IOS
-#include <dlfcn.h>
+// ANGLE (OpenGL ES on Metal), else Apple's OpenGL ES: the SDL_GL_* calls in
+// this file go to ios/IOSGL.c
+#include "IOSGL.h"
 // Once a second, into Output.log: frames drawn, triangles drawn, the
 // framebuffer bound and any errors from the real OpenGL ES under gl4es.
 static void IOS_LogFrameStats(INDEX ctWorld, INDEX ctModel, INDEX ctTotal)
@@ -72,11 +74,8 @@ static void IOS_LogFrameStats(INDEX ctWorld, INDEX ctModel, INDEX ctTotal)
   const Uint32 tmNow = SDL_GetTicks();
   if (tmNow - tmLast < 1000) return;
   if (!bLooked) {
-    void *hGLES = dlopen("/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY | RTLD_LOCAL);
-    if (hGLES != NULL) {
-      pGetError = (unsigned int (*)(void)) dlsym(hGLES, "glGetError");
-      pGetIntegerv = (void (*)(unsigned int, int *)) dlsym(hGLES, "glGetIntegerv");
-    }
+    pGetError = (unsigned int (*)(void)) IOS_GL_GetProcAddress("glGetError");
+    pGetIntegerv = (void (*)(unsigned int, int *)) IOS_GL_GetProcAddress("glGetIntegerv");
     bLooked = TRUE;
   }
   int iFBO = -1;

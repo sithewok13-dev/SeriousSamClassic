@@ -16,6 +16,11 @@ name: iOS
 #     ios-v<version>, is already on another commit, or the notes have no
 #     "### What's in <tag>" line.
 #   Running it again for the same tag on the same commit updates that release.
+#
+# ANGLE (OpenGL ES on Metal, what gl4es draws with; Apple's OpenGL ES if it
+# can't start) is built once with Chromium's tools and cached, as in the Jedi
+# Knight port's workflow. The first run takes a long time; later runs restore
+# it in seconds. To rebuild it, change ANGLE_REV or bump ANGLE_CACHE_VERSION.
 
 on:
   push:
@@ -41,6 +46,13 @@ env:
   IOS_MIN: "15.0"
   SDL_TAG: release-2.30.8
   GL4ES_SHA: ec16bedd8819c475326f4f1a3063772c6d986e06
+  # ANGLE branch chromium/8060, from the github.com/google/angle mirror (the
+  # same revision as the Jedi Knight and Dark Forces ports)
+  ANGLE_REV: 4b7308a36376199c095ccb0ab69b773daa8b9fbe
+  ANGLE_CACHE_VERSION: v1
+  # The iOS that ANGLE's frameworks need (as in those ports). An older iOS
+  # can't load them, and the games use Apple's OpenGL ES there.
+  ANGLE_IOS_MIN: "18.0"
   # The tag a manual run was asked to release; empty for pushes and ordinary runs.
   RELEASE_TAG: ${{ inputs.release }}
   # The .ipa files a release gets, space-separated: since ios-v0.2 both games
@@ -57,8 +69,97 @@ permissions:
   contents: read
 
 jobs:
+  angle:
+    name: ANGLE
+    runs-on: macos-15
+    # the first (uncached) build is long
+    timeout-minutes: 330
+    steps:
+    - name: Restore ANGLE
+      id: angle
+      uses: actions/cache/restore@v4
+      with:
+        path: angle-prebuilt
+        key: angle-ios-arm64-${{ env.ANGLE_REV }}-ios${{ env.ANGLE_IOS_MIN }}-${{ env.ANGLE_CACHE_VERSION }}
+        lookup-only: true
+
+    - name: Select newest Xcode
+      if: steps.angle.outputs.cache-hit != 'true'
+      run: |
+        set -e
+        XCODE=$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)
+        echo "Using $XCODE"
+        sudo xcode-select -s "$XCODE/Contents/Developer"
+        xcodebuild -version
+
+    - name: Free disk space for ANGLE
+      if: steps.angle.outputs.cache-hit != 'true'
+      run: |
+        df -h /
+        sudo rm -rf ~/Library/Android /usr/local/share/dotnet ~/.dotnet /usr/local/lib/node_modules || true
+        df -h /
+
+    - name: Build ANGLE
+      if: steps.angle.outputs.cache-hit != 'true'
+      run: |
+        set -ex
+        git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
+        export PATH="$RUNNER_TEMP/depot_tools:$PATH"
+        mkdir -p "$RUNNER_TEMP/angle" && cd "$RUNNER_TEMP/angle"
+        git init -q
+        git fetch --depth 1 https://github.com/google/angle "$ANGLE_REV"
+        git checkout -q FETCH_HEAD
+        # an unmanaged solution rooted at this checkout, for iOS, without
+        # Dawn/WebGPU (not needed, and large)
+        cat > .gclient <<'EOF'
+        solutions = [
+          {
+            "name": ".",
+            "url": "https://chromium.googlesource.com/angle/angle.git",
+            "deps_file": "DEPS",
+            "managed": False,
+            "custom_deps": {},
+            "custom_vars": {
+              "checkout_angle_dawn_deps": False,
+            },
+          },
+        ]
+        target_os = ["ios"]
+        EOF
+        gclient sync --no-history --shallow -j8
+        df -h /
+        gn gen out/ios --args="
+          is_debug=false
+          is_component_build=false
+          symbol_level=0
+          target_os=\"ios\"
+          target_cpu=\"arm64\"
+          target_environment=\"device\"
+          ios_deployment_target=\"$ANGLE_IOS_MIN\"
+          ios_enable_code_signing=false
+          angle_enable_vulkan=false
+          angle_enable_swiftshader=false
+          angle_enable_wgpu=false
+          angle_build_tests=false
+        "
+        autoninja -C out/ios libEGL libGLESv2
+        # only what ios/ios_app.cmake needs: include/ and the two frameworks
+        DEST="$GITHUB_WORKSPACE/angle-prebuilt"
+        mkdir -p "$DEST/out/ios"
+        cp -R include "$DEST/include"
+        cp -R out/ios/libEGL.framework out/ios/libGLESv2.framework "$DEST/out/ios/"
+        ls -la "$DEST/out/ios"/*.framework
+
+    - name: Save ANGLE
+      if: steps.angle.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: angle-prebuilt
+        key: ${{ steps.angle.outputs.cache-primary-key }}
+
   build:
     name: ${{ matrix.game }}
+    needs: angle
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -138,6 +239,20 @@ jobs:
         path: deps
         key: ${{ steps.deps.outputs.cache-primary-key }}
 
+    - name: Restore ANGLE
+      uses: actions/cache/restore@v4
+      with:
+        path: angle-prebuilt
+        key: angle-ios-arm64-${{ env.ANGLE_REV }}-ios${{ env.ANGLE_IOS_MIN }}-${{ env.ANGLE_CACHE_VERSION }}
+        fail-on-cache-miss: true
+
+    - name: Show ANGLE
+      run: |
+        for f in libEGL libGLESv2; do
+          file "angle-prebuilt/out/ios/$f.framework/$f"
+          otool -l "angle-prebuilt/out/ios/$f.framework/$f" | grep -A4 LC_BUILD_VERSION | grep -E 'platform|minos' || true
+        done
+
     - name: Build entity compiler (host)
       run: |
         set -e
@@ -163,6 +278,7 @@ jobs:
           -DSDL2_LIBRARY=$DEPS/lib/libSDL2.a \
           -DGL4ES_ROOT=$DEPS/gl4es \
           -DGL4ES_LIBRARY=$DEPS/gl4es/lib/libGL.a \
+          -DANGLE_ROOT=$PWD/angle-prebuilt \
           -DSE_IOS_BUILD_NUMBER=${{ github.run_number }}
 
     - name: Build
@@ -175,6 +291,13 @@ jobs:
         echo "App bundle: $APP"
         ls -la "$APP"
         plutil -lint "$APP/Info.plist"
+        # ANGLE is in the app (loaded at run time), Apple's OpenGL ES is still linked
+        ls "$APP/Frameworks/libEGL.framework/libEGL" "$APP/Frameworks/libGLESv2.framework/libGLESv2"
+        otool -L "$APP/$(basename "$APP" .app)" | grep OpenGLES
+        # ANGLE's frameworks first, then the app around them
+        for f in "$APP"/Frameworks/*.framework; do
+          codesign --force --sign - --timestamp=none "$f"
+        done
         codesign --force --sign - --timestamp=none "$APP"
         mkdir -p ipa/Payload
         cp -R "$APP" ipa/Payload/

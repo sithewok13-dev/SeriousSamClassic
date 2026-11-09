@@ -62,16 +62,14 @@ extern "C" void IOS_InstallBundledFile(const char *strName);
 #ifdef PLATFORM_IOS
 // iOS only has OpenGL ES; gl4es translates the engine's desktop GL calls.
 #include <gl4esinit.h>
-#include <dlfcn.h>
-// Resolve real GLES entry points from the system framework only. A plain
-// SDL_GL_GetProcAddress would find gl4es' own glXxx symbols in our binary.
+// ANGLE (OpenGL ES on Metal), else Apple's OpenGL ES: the SDL_GL_* calls in
+// this file go to ios/IOSGL.c
+#include "IOSGL.h"
+// Resolve real GLES entry points from ANGLE or the system framework only. A
+// plain SDL_GL_GetProcAddress would find gl4es' own glXxx symbols in our binary.
 static void *IOS_GLESProcAddress(const char *name)
 {
-  static void *hGLES = NULL;
-  if (hGLES == NULL) {
-    hGLES = dlopen("/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY | RTLD_LOCAL);
-  }
-  return hGLES ? dlsym(hGLES, name) : NULL;
+  return IOS_GL_GetProcAddress(name);
 }
 static void IOS_MainFBSize(int *w, int *h)
 {
@@ -288,7 +286,9 @@ extern "C" void IOS_WaitForForeground(void);
 #endif
 
 #ifdef PLATFORM_IOS
-#include <dlfcn.h>
+// ANGLE (OpenGL ES on Metal), else Apple's OpenGL ES: the SDL_GL_* calls in
+// this file go to ios/IOSGL.c
+#include "IOSGL.h"
 // Once a second, into Output.log: frames drawn, triangles drawn, the
 // framebuffer bound and any errors from the real OpenGL ES under gl4es.
 static void IOS_LogFrameStats(INDEX ctWorld, INDEX ctModel, INDEX ctTotal)
@@ -302,11 +302,8 @@ static void IOS_LogFrameStats(INDEX ctWorld, INDEX ctModel, INDEX ctTotal)
   const Uint32 tmNow = SDL_GetTicks();
   if (tmNow - tmLast < 1000) return;
   if (!bLooked) {
-    void *hGLES = dlopen("/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY | RTLD_LOCAL);
-    if (hGLES != NULL) {
-      pGetError = (unsigned int (*)(void)) dlsym(hGLES, "glGetError");
-      pGetIntegerv = (void (*)(unsigned int, int *)) dlsym(hGLES, "glGetIntegerv");
-    }
+    pGetError = (unsigned int (*)(void)) IOS_GL_GetProcAddress("glGetError");
+    pGetIntegerv = (void (*)(unsigned int, int *)) IOS_GL_GetProcAddress("glGetIntegerv");
     bLooked = TRUE;
   }
   int iFBO = -1;
@@ -2781,4 +2778,26 @@ CMGTrigger mgNetworkAllowCheats;
         }
 #endif
 """, "          paClearAction.pa_ulButtons = (ULONG)IOSCheat_pfnActionBits();\n")
+
+    # ------------------------------------------------------------ frame times
+    # Every 5 seconds of play, Output.log gets the frame rate and where each
+    # frame's time went (ios/IOSGL.c): the game's work up to here, drawing
+    # from here to the swap, and the swap itself
+    p = src / "SeriousSam/SeriousSam.cpp"
+    sub(p, "// Once a frame: tells the touch controls what the game is doing, and carries\n", """// (a frame of play, for the frame times in Output.log: ios/IOSGL.c)
+extern "C" void IOS_PerfDrawStart(int bInPlay);
+static int _bIOSPerfInPlay = 0;
+
+// Once a frame: tells the touch controls what the game is doing, and carries
+""", "static int _bIOSPerfInPlay = 0;")
+    sub(p, "  IOSTouchHud hud;\n  IOS_GetHudState(&hud);\n", """  _bIOSPerfInPlay = (iMode==IOSTOUCH_GAMEPLAY);
+  IOSTouchHud hud;
+  IOS_GetHudState(&hud);
+""", "  _bIOSPerfInPlay = (iMode==IOSTOUCH_GAMEPLAY);\n")
+    sub(p, "    IOSCapture_FrameBegin(pdp->dp_Raster->ra_Width, pdp->dp_Raster->ra_Height);\n#endif\n", """    IOSCapture_FrameBegin(pdp->dp_Raster->ra_Width, pdp->dp_Raster->ra_Height);
+#endif
+#ifdef PLATFORM_IOS
+    IOS_PerfDrawStart(_bIOSPerfInPlay);
+#endif
+""", "    IOS_PerfDrawStart(_bIOSPerfInPlay);\n")
     print(game, "patched")

@@ -4,6 +4,7 @@
 # Expects (passed on the command line by .github/workflows/ios.yml):
 #   GL4ES_ROOT  - gl4es source tree with the iOS static library built in GL4ES_LIBRARY
 #   SDL2_INCLUDE_DIR / SDL2_LIBRARY - SDL2 built for iOS
+#   ANGLE_ROOT  - ANGLE built for iOS: include/ and out/ios/lib{EGL,GLESv2}.framework
 
 set(SE_IOS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(SE_EXE SeriousSam${MP})
@@ -21,7 +22,16 @@ if(NOT SE_IOS_BUILD_NUMBER)
   set(SE_IOS_BUILD_NUMBER 1)
 endif()
 
+if(NOT ANGLE_ROOT)
+  message(FATAL_ERROR "iOS needs ANGLE: pass -DANGLE_ROOT=<dir with include/ and out/ios/lib*.framework>")
+endif()
+set(SE_ANGLE_FRAMEWORKS ${ANGLE_ROOT}/out/ios)
+
 target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSSupport.c)
+# the OpenGL ES under gl4es: ANGLE (Metal), else Apple's OpenGL ES; and the
+# frame times in Output.log
+target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSGL.c)
+set_source_files_properties(${SE_IOS_DIR}/IOSGL.c PROPERTIES INCLUDE_DIRECTORIES ${ANGLE_ROOT}/include)
 # multiplayer on the Wi-Fi: this phone's address, the addresses a LAN search asks
 target_sources(${SE_EXE} PRIVATE ${SE_IOS_DIR}/IOSNet.c)
 # the cheat (sithewok): the app's part (the level picker, Sam's lines, what the overlay needs to know)
@@ -63,7 +73,7 @@ target_link_libraries(${SE_EXE}
   ${GL4ES_LIBRARY}
   "-framework Foundation"
   "-framework UIKit"
-  "-framework OpenGLES"
+  "-framework OpenGLES"  # (if ANGLE can't start)
   "-framework QuartzCore"
   "-framework CoreGraphics"
   "-framework CoreVideo"
@@ -78,10 +88,12 @@ target_link_libraries(${SE_EXE}
   "-weak_framework CoreHaptics"
   "-weak_framework UniformTypeIdentifiers"
   iconv
+  # ANGLE is loaded at run time (IOSGL.c), from the app's Frameworks folder
+  "-Wl,-rpath,@executable_path/Frameworks"
 )
 
 # Files the engine needs next to the game data (part of the open-source
-# release, not Croteam's game content) plus the home-screen icon.
+# release, not Croteam's game content), the home-screen icon and ANGLE.
 add_custom_command(TARGET ${SE_EXE} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           ${CMAKE_CURRENT_SOURCE_DIR}/../SE1_10b.gro
@@ -89,5 +101,10 @@ add_custom_command(TARGET ${SE_EXE} POST_BUILD
           $<TARGET_BUNDLE_DIR:${SE_EXE}>/
   COMMAND sips -z 120 120 ${SE_IOS_ICON} --out $<TARGET_BUNDLE_DIR:${SE_EXE}>/AppIcon60x60@2x.png
   COMMAND sips -z 180 180 ${SE_IOS_ICON} --out $<TARGET_BUNDLE_DIR:${SE_EXE}>/AppIcon60x60@3x.png
+  COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_DIR:${SE_EXE}>/Frameworks
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${SE_ANGLE_FRAMEWORKS}/libEGL.framework
+          $<TARGET_BUNDLE_DIR:${SE_EXE}>/Frameworks/libEGL.framework
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${SE_ANGLE_FRAMEWORKS}/libGLESv2.framework
+          $<TARGET_BUNDLE_DIR:${SE_EXE}>/Frameworks/libGLESv2.framework
   VERBATIM
 )

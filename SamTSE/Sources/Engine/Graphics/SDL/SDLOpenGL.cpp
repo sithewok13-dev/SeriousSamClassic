@@ -6,16 +6,14 @@
 #ifdef PLATFORM_IOS
 // iOS only has OpenGL ES; gl4es translates the engine's desktop GL calls.
 #include <gl4esinit.h>
-#include <dlfcn.h>
-// Resolve real GLES entry points from the system framework only. A plain
-// SDL_GL_GetProcAddress would find gl4es' own glXxx symbols in our binary.
+// ANGLE (OpenGL ES on Metal), else Apple's OpenGL ES: the SDL_GL_* calls in
+// this file go to ios/IOSGL.c
+#include "IOSGL.h"
+// Resolve real GLES entry points from ANGLE or the system framework only. A
+// plain SDL_GL_GetProcAddress would find gl4es' own glXxx symbols in our binary.
 static void *IOS_GLESProcAddress(const char *name)
 {
-  static void *hGLES = NULL;
-  if (hGLES == NULL) {
-    hGLES = dlopen("/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY | RTLD_LOCAL);
-  }
-  return hGLES ? dlsym(hGLES, name) : NULL;
+  return IOS_GL_GetProcAddress(name);
 }
 static void IOS_MainFBSize(int *w, int *h)
 {
