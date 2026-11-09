@@ -273,6 +273,8 @@ void IOSTouch_SetWeaponIcon(int iWeapon, const unsigned char *pubRGBA, int iWidt
 /* Main thread: whether the weapon wheel (or the cheat's list of levels) is
    open in a game being played: the game holds still (the local pause), draws no "Paused" and no HUD weapon row */
 int IOSTouch_HoldsGame(void);
+/* the frame rate chosen in MENU's tray (FPS held): 60 or 120 */
+int IOSTouch_MaxFps(void);
 /* The cheat (sithewok, IOSCheat.h): its bits for local player 0's actions
    this tick (the app sets IOSCheat_pfnActionBits to it), the word typed in
    the console (IOSCheat_pfnTyped), and the level picked (1..ctLevels; 0:

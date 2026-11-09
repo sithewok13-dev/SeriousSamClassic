@@ -952,6 +952,19 @@ static float _fLookScale = 1.0f;
 static float _fLookRing = 0.0f;
 static int _ctLookResets = 0;
 static int _bShowFps = 0;                  // the FPS readout (the view keeps it in the app's settings)
+// The frame rate: 60, or 120 on a ProMotion screen (smoother, more battery).
+// The tray's FPS held switches it (its ring; a thump for each change, the
+// view's); the view keeps it in the app's settings and asks the screen for
+// it, and IOSGL_FrameCap (IOSGL.c) keeps the game's frames to it
+static int _iMaxFps = 60;
+static float _fFpsRing = 0.0f;
+static int _ctMaxFpsChanges = 0;
+
+// The frame rate asked for in the tray (FPS held): 60 or 120
+int IOSTouch_MaxFps(void)
+{
+  return _iMaxFps;
+}
 // CAMERA: whether it shows, what a tap takes (IOSCAPTURE_*: never none), how
 // many photos a selfie takes (1, 3 or 5), whether FREEZE is on (the view
 // keeps these in the app's settings); whether its options row and PHOTO's
@@ -1292,7 +1305,7 @@ static void IOSTouch_DropTouches(const IOSTouchSlot *s)
     }
     o->role = ROLE_IGNORED;
   }
-  _fSaveRing = _fLoadRing = _fMenuRing = _fMessagesRing = _fLookRing = 0.0f;
+  _fSaveRing = _fLoadRing = _fMenuRing = _fMessagesRing = _fLookRing = _fFpsRing = 0.0f;
   IOSTouch_SetMoveFromStick();
   IOSTouch_SetHeld(IOSTouch_HeldButtons(), 0);
 }
@@ -3058,8 +3071,8 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
       else if (b->kind == KIND_PRESS) {
         ulLifted |= b->ulAction; // never held, so the game gets it as one press
       }
-      else if (IOSTouch_IsTrayButton(s->button) && !((s->button == BTN_TRAYCAM || s->button == BTN_TRAYLOOK) && s->bFired)) {
-        IOSTouch_UseTrayButton(s->button); // (not the tray's CAMERA or LOOK once held: that opened its options, or set 1x)
+      else if (IOSTouch_IsTrayButton(s->button) && !((s->button == BTN_TRAYCAM || s->button == BTN_TRAYLOOK || s->button == BTN_TRAYFPS) && s->bFired)) {
+        IOSTouch_UseTrayButton(s->button); // (not the tray's CAMERA, LOOK or FPS once held: that opened its options, set 1x, or switched 60/120)
       }
       else if (b->kind == KIND_MENU && !s->bFired) {
         _iRequests |= b->ulAction; // a tap: the menu
@@ -3075,6 +3088,7 @@ static void IOSTouch_TouchEnded(const void *touch, double x, double y, int bCanc
     if (s->button == BTN_CAMERA) _fCameraRing = 0.0f;
     if (s->button == BTN_TRAYCAM) _fCamSwitchRing = 0.0f;
     if (s->button == BTN_TRAYLOOK) _fLookRing = 0.0f;
+    if (s->button == BTN_TRAYFPS) _fFpsRing = 0.0f;
     // MENU held until its tray opened, then slid onto one of its buttons
     if (!bCancelled && s->button == BTN_MENU && s->bFired && _bTrayOpen) {
       const int tb = IOSTouch_ButtonAt(x, y);
@@ -3160,6 +3174,7 @@ static void IOSTouch_TickHolds(double now)
   _afWheelRing[1] = afWheelRing[1];
   // the furthest along of QUICK SAVE's and of QUICK LOAD's holds (a touch each)
   _fLookRing = 0.0f; // (set again below while LOOK is held)
+  _fFpsRing = 0.0f;  // (...and FPS)
   float fSaveRing = 0.0f, fLoadRing = 0.0f, fMessagesRing = 0.0f;
   int iDone = -1; // the quick hold that completed: BTN_QUICKSAVE or BTN_QUICKLOAD
   int bMessagesDone = 0; // a hold on the unread messages box completed
@@ -3255,6 +3270,26 @@ static void IOSTouch_TickHolds(double now)
       }
       else {
         _fLookRing = (float)progress;
+      }
+    }
+    else if (s->button == BTN_TRAYFPS) {
+      // the tray's FPS held: 60 or 120 frames a second (the lift then does
+      // nothing)
+      if (!IOSTouch_LiftsOnButton(s->x, s->y, BTN_TRAYFPS)) {
+        s->bFired = 1;
+        _fFpsRing = 0.0f;
+        continue;
+      }
+      const double progress = (now - s->tDown) / IOSTOUCH_MENU_HOLD;
+      if (progress >= 1.0) {
+        s->bFired = 1;
+        _fFpsRing = 0.0f;
+        _iMaxFps = (_iMaxFps == 120) ? 60 : 120;
+        _ctMaxFpsChanges++;
+        IOS_ShowCameraMessage(_iMaxFps == 120 ? "120 FPS: smoother, uses more battery" : "60 FPS: cooler, uses less battery");
+      }
+      else {
+        _fFpsRing = (float)progress;
       }
     }
     else if (s->button == BTN_MENU) {
@@ -3555,6 +3590,7 @@ static void IOSTouch_ResetTouches(int bReading)
   _afCheatActRing[0] = _afCheatActRing[1] = 0.0f;
   _bLevelListOpen = 0;
   _fLookRing = 0.0f;
+  _fFpsRing = 0.0f;
   IOSTouch_ResetShared(bReading);
 }
 
@@ -3579,6 +3615,7 @@ static void IOSTouch_ResetTouches(int bReading)
 #define IOSTOUCH_CHEAT_DEFAULTS_KEY @"iosTouchShowCheat"
 // ...and the look speed (MENU's tray's LOOK; never set: 1x)
 #define IOSTOUCH_LOOKSCALE_DEFAULTS_KEY @"iosTouchLookScale"
+#define IOSTOUCH_MAXFPS_DEFAULTS_KEY @"iosTouchMaxFps"
 
 // The app's version as its Info.plist says (ios_app.cmake sets both):
 // "v0.1.57", with the build number after it, "v0.1.57 (57)", when that is
@@ -3794,6 +3831,13 @@ typedef struct {
   float fLookSaved;
   int ctLookResetsFelt;
   UIImpactFeedbackGenerator *lookThump;
+  CAShapeLayer *fpsRing;
+  int iMaxFpsLabel;
+  int iMaxFpsSaved;
+  int ctMaxFpsFelt;
+  CADisplayLink *frameRateLink;
+  int ctRefreshTicks;
+  double tRefreshStart;
   int bTrayLevelViews;
   int bCheatLookOn;
   int ctCheatTicksFelt;
@@ -3947,7 +3991,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     iGyroModeSaved = _iGyroMode;
     iGyroSensSaved = _iGyroSens;
     iGyroLabels = -1;
-    for (int i = BTN_TRAYLOOK; i <= BTN_TRAYGYRO; i++) {
+    for (int i = BTN_TRAYLOOK; i <= BTN_TRAYFPS; i++) {
       aButtonViews[i].font = IOSTouch_TrayFont(IOSTouch_FontSize("GYRO\nALWAYS", _aButtons[i].radius));
     }
     // LOOK says the look speed on its second line too (set in
@@ -3962,6 +4006,15 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     [aButtonViews[BTN_TRAYLOOK].layer addSublayer:lookRing];
     lookThump = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
     ctLookResetsFelt = _ctLookResets;
+    // The tray's FPS says the frame rate ("FPS\n60"), switched held (its ring)
+    const NSInteger iMaxFps = [dLook integerForKey:IOSTOUCH_MAXFPS_DEFAULTS_KEY];
+    _iMaxFps = (iMaxFps == 120) ? 120 : 60;
+    iMaxFpsSaved = _iMaxFps;
+    iMaxFpsLabel = -1;
+    ctMaxFpsFelt = _ctMaxFpsChanges;
+    fpsRing = IOSTouch_MakeHoldRing(_aButtons[BTN_TRAYFPS].radius);
+    [aButtonViews[BTN_TRAYFPS].layer addSublayer:fpsRing];
+    [self applyMaxFps];
     UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
     UIImage *kb = [UIImage systemImageNamed:@"keyboard" withConfiguration:cfg];
     if (kb) {
@@ -4418,6 +4471,49 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
   aButtonViews[BTN_TRAYSENS].text = [NSString stringWithFormat:@"SENS\n%.1fx", (double)_afGyroSens[_iGyroSens]];
 }
 
+// The frame rate asked of the screen: a display link that does nothing but
+// say what rate the app wants (ProMotion screens give an app 60 unless it
+// asks; Info.plist's CADisableMinimumFrameDurationOnPhone lets it ask 120).
+// The game's frames follow the screen (vsync) and IOSGL_FrameCap (IOSGL.c).
+- (void)applyMaxFps
+{
+  if (!frameRateLink) {
+    frameRateLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(frameRateTick:)];
+    [frameRateLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+  }
+  const float f = (float)_iMaxFps;
+  if (@available(iOS 15.0, *)) {
+    frameRateLink.preferredFrameRateRange = CAFrameRateRangeMake(_iMaxFps == 120 ? 80.0f : 60.0f, f, f);
+  }
+  // (for the log: what the screen can do, and whether Low Power Mode caps it)
+  printf("iOS: asked the screen for %d Hz (it can do %ld; Low Power Mode %s)\n", _iMaxFps,
+         (long)[UIScreen mainScreen].maximumFramesPerSecond, [NSProcessInfo processInfo].lowPowerModeEnabled ? "on: 60 at most" : "off");
+  fflush(stdout);
+  ctRefreshTicks = 0;
+  tRefreshStart = 0.0;
+}
+
+// (for the log: the rate the screen really runs at, once after each change)
+- (void)frameRateTick:(CADisplayLink *)link
+{
+  if (tRefreshStart == 0.0) { tRefreshStart = link.timestamp; return; }
+  if (ctRefreshTicks < 0) return;
+  ctRefreshTicks++;
+  if (link.timestamp - tRefreshStart >= 5.0) {
+    printf("iOS: the screen runs at %.0f Hz\n", ctRefreshTicks / (link.timestamp - tRefreshStart));
+    fflush(stdout);
+    ctRefreshTicks = -1;
+  }
+}
+
+// What the tray's FPS says: the frame rate asked for ("FPS\n60")
+- (void)refreshMaxFpsLabel
+{
+  if (iMaxFpsLabel == _iMaxFps) return;
+  iMaxFpsLabel = _iMaxFps;
+  aButtonViews[BTN_TRAYFPS].text = [NSString stringWithFormat:@"FPS\n%d", _iMaxFps];
+}
+
 // What the tray's LOOK says: the look speed ("LOOK\n1x", "LOOK\n0.75x")
 - (void)refreshLookLabel
 {
@@ -4431,6 +4527,7 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
 {
   [self refreshGyroLabels];
   [self refreshLookLabel];
+  [self refreshMaxFpsLabel];
   const int bGyro = IOSTouch_GyroAvailable();
   for (int i = 0; i < IOSTOUCH_NUM_BUTTONS; i++) {
     UILabel *l = aButtonViews[i];
@@ -4491,6 +4588,10 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
     fLookSaved = _fLookScale;
     [[NSUserDefaults standardUserDefaults] setFloat:_fLookScale forKey:IOSTOUCH_LOOKSCALE_DEFAULTS_KEY];
   }
+  if (iMaxFpsSaved != _iMaxFps) {
+    iMaxFpsSaved = _iMaxFps;
+    [[NSUserDefaults standardUserDefaults] setInteger:_iMaxFps forKey:IOSTOUCH_MAXFPS_DEFAULTS_KEY];
+  }
   if (iGyroSensSaved != _iGyroSens) {
     iGyroSensSaved = _iGyroSens;
     [[NSUserDefaults standardUserDefaults] setFloat:_afGyroSens[_iGyroSens] forKey:IOSTOUCH_GYRO_SENS_DEFAULTS_KEY];
@@ -4522,6 +4623,7 @@ static void IOSTouch_CheatEmblemPaths(CGFloat cx, CGFloat cy, CGFloat r, UIBezie
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
   [self setRing:lookRing progress:_fLookRing];
+  [self setRing:fpsRing progress:_fFpsRing];
   [self setRing:aWheelRings[0] progress:_afWheelRing[0]];
   [self setRing:aWheelRings[1] progress:_afWheelRing[1]];
   [self refreshMessages];
@@ -4910,6 +5012,7 @@ static CGImageRef IOSTouch_MakeIconImage(const unsigned char *pub, int w, int h)
   [self setRing:loadRing progress:_fLoadRing];
   [self setRing:menuRing progress:_fMenuRing];
   [self setRing:lookRing progress:_fLookRing];
+  [self setRing:fpsRing progress:_fFpsRing];
   [self setRing:aWheelRings[0] progress:_afWheelRing[0]];
   [self setRing:aWheelRings[1] progress:_afWheelRing[1]];
   [self refreshMessages];
@@ -4919,6 +5022,13 @@ static CGImageRef IOSTouch_MakeIconImage(const unsigned char *pub, int w, int h)
   if (ctLookResetsFelt != _ctLookResets) {
     ctLookResetsFelt = _ctLookResets;
     [lookThump impactOccurred];
+    [self refreshButtonLooks];
+  }
+  // FPS held: 60 or 120 (a thump, its label, the screen asked)
+  if (ctMaxFpsFelt != _ctMaxFpsChanges) {
+    ctMaxFpsFelt = _ctMaxFpsChanges;
+    [lookThump impactOccurred];
+    [self applyMaxFps];
     [self refreshButtonLooks];
   }
 

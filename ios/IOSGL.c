@@ -252,6 +252,8 @@ void IOS_GL_DeleteContext(SDL_GLContext pContext)
 }
 
 static void IOSGL_PerfFrame(uint64_t tSwap, uint64_t tDone);
+static uint64_t IOSGL_FrameCap(void);
+static uint64_t _tCapWait = 0;  // (the last wait in IOSGL_FrameCap, which the next frame's game time leaves out)
 static uint64_t IOSGL_Ns(void)
 {
   struct timespec ts;
@@ -281,6 +283,35 @@ void IOS_GL_SwapWindow(SDL_Window *pWindow)
     }
   }
   IOSGL_PerfFrame(tSwap, IOSGL_Ns());
+  _tCapWait = IOSGL_FrameCap();
+}
+
+// The tray's FPS at 60 on a 120 Hz screen: the screen is asked for 60, but
+// the game's frames would still come at the screen's 120 (vsync), so they
+// are kept at most 1/60 s apart here, after each swap (the waits save
+// battery). Returns how long it waited.
+extern int IOSTouch_MaxFps(void);
+static uint64_t IOSGL_FrameCap(void)
+{
+  static uint64_t tNext = 0;
+  const int iFps = IOSTouch_MaxFps();
+  if (iFps <= 0 || iFps >= 120) {
+    tNext = 0;
+    return 0;
+  }
+  const uint64_t tPeriod = 1000000000ull / (uint64_t) iFps;
+  const uint64_t tNow = IOSGL_Ns();
+  // (far behind, after a pause or a load: from now on)
+  if (tNext == 0 || tNow > tNext + tPeriod) tNext = tNow;
+  uint64_t tWaited = 0;
+  if (tNow < tNext) {
+    const uint64_t tWait = tNext - tNow;
+    struct timespec ts = { (time_t)(tWait / 1000000000ull), (long)(tWait % 1000000000ull) };
+    nanosleep(&ts, NULL);
+    tWaited = IOSGL_Ns() - tNow;
+  }
+  tNext += tPeriod;
+  return tWaited;
 }
 
 int IOS_GL_SetSwapInterval(int iInterval)
@@ -388,8 +419,9 @@ void *IOS_GL_GetProcAddress(const char *strName)
 // Every 5 seconds of play, into Output.log: the frames shown and where each
 // one's time went: the game's own work (its ticks, sound, input, the
 // overlay), drawing (the CPU handing OpenGL ES its work, through gl4es; and
-// the part of that spent in the draw calls), and presenting (the swap, which
-// waits while the GPU or the screen is behind), and draw calls per frame
+// the part of that spent in the draw calls), presenting (the swap, which
+// waits while the GPU or the screen is behind) and the wait that keeps to the
+// tray's 60 FPS, and draw calls per frame
 static uint64_t _tDrawStart = 0;
 static int _bFrameInPlay = 0;
 
@@ -401,7 +433,7 @@ void IOS_PerfDrawStart(int bInPlay)
 
 static void IOSGL_PerfFrame(uint64_t tSwap, uint64_t tDone)
 {
-  static uint64_t tLastDone = 0, tStart = 0, tGame = 0, tDraw = 0, tPresent = 0, tGL = 0, tWorst = 0;
+  static uint64_t tLastDone = 0, tStart = 0, tGame = 0, tDraw = 0, tPresent = 0, tGL = 0, tWorst = 0, tCap = 0;
   static int ctFrames = 0, ctCalls = 0;
   const uint64_t tPrev = tLastDone;
   tLastDone = tDone;
@@ -419,24 +451,26 @@ static void IOSGL_PerfFrame(uint64_t tSwap, uint64_t tDone)
   if (tStart == 0) {
     tStart = tPrev;
     ctFrames = ctCalls = 0;
-    tGame = tDraw = tPresent = tGL = tWorst = 0;
+    tGame = tDraw = tPresent = tGL = tWorst = tCap = 0;
   }
   ctFrames++;
   ctCalls += ctDraws;
-  tGame += _tDrawStart - tPrev;
+  const uint64_t tCapped = (_tCapWait < _tDrawStart - tPrev) ? _tCapWait : _tDrawStart - tPrev;
+  tCap += tCapped;
+  tGame += _tDrawStart - tPrev - tCapped;
   tDraw += tSwap - _tDrawStart;
   tPresent += tDone - tSwap;
   tGL += tInDraws;
   if (tDone - tPrev > tWorst) tWorst = tDone - tPrev;
   if (tDone - tStart >= 5000000000ull) {
     const double ms = 1e-6 / ctFrames;
-    printf("iOS: frames %.1f fps (%s); per frame %.1f ms (worst %.1f): game %.1f, drawing %.1f (in GL's draw calls %.1f), present %.1f; %d draw calls\n",
+    printf("iOS: frames %.1f fps (%s); per frame %.1f ms (worst %.1f): game %.1f, drawing %.1f (in GL's draw calls %.1f), present %.1f, held to %d FPS %.1f; %d draw calls\n",
            ctFrames * 1e9 / (double)(tDone - tStart), (_iUsing == GL_ANGLE) ? "ANGLE" : "Apple's OpenGL ES",
            (double)(tDone - tStart) * ms, tWorst * 1e-6, tGame * ms, tDraw * ms, tGL * ms, tPresent * ms,
-           ctCalls / ctFrames);
+           IOSTouch_MaxFps(), tCap * ms, ctCalls / ctFrames);
     fflush(stdout);
     tStart = tDone;
     ctFrames = ctCalls = 0;
-    tGame = tDraw = tPresent = tGL = tWorst = 0;
+    tGame = tDraw = tPresent = tGL = tWorst = tCap = 0;
   }
 }

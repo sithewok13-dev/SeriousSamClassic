@@ -9,7 +9,8 @@
  *
  * Included by the engine's SDL OpenGL code (SDLOpenGL.cpp, GfxLibrary.cpp):
  * there the SDL_GL_* calls below become these, so the engine's own code stays
- * as it is. Also logs frame times (every 5 seconds of play).
+ * as it is. Also logs frame times (every 5 seconds of play) and keeps the
+ * frames to the tray's 60 FPS (IOSTouch_MaxFps).
  */
 #ifndef IOSGL_H
 #define IOSGL_H

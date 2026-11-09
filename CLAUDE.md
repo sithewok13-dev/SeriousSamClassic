@@ -69,6 +69,9 @@ reads everything on a phone.
   - LOOK: the drag's look speed, shown on it ("LOOK 1x"); a tap steps up 0.5, 0.75,
     1, 1.25, 1.5, 2, 2.5, 3x (round to 0.5x); held 0.45 s (ring) back to 1x with a
     toast and a haptic. Remembered.
+  - FPS (tray): tap = show/hide the FPS readout; held 0.45 s (ring) = 60 <-> 120
+    ("FPS 60", default 60) with a toast and a haptic. Remembered. A display link asks the
+    screen for it, and `IOSGL_FrameCap` in `IOSGL.c` keeps frames 1/60 s apart at 60.
   - CAMERA (top row): tap = photo, hold 0.5 s = selfie (1/3/5 photos; up to 48 nearest
     enemies posed in frames of their own animations, `IOSSELFIE_MAX_PEOPLE`), slide
     sideways = burst, slide down = Action Freeze, slide up = cinematic burst. The tray's
