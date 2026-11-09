@@ -290,6 +290,10 @@ jobs:
         APP=$(find build -maxdepth 2 -name "*.app" -type d | head -1)
         echo "App bundle: $APP"
         ls -la "$APP"
+        # The build stamp the app shows under its tray ("build 80 · Nov 9"):
+        # this run's number and today's date (UTC)
+        /usr/libexec/PlistBuddy -c "Add :SWBuildNumber string ${{ github.run_number }}" \
+          -c "Add :SWBuildDate string $(date -u +%F)" "$APP/Info.plist"
         plutil -lint "$APP/Info.plist"
         # ANGLE is in the app (loaded at run time), Apple's OpenGL ES is still linked
         ls "$APP/Frameworks/libEGL.framework/libEGL" "$APP/Frameworks/libGLESv2.framework/libGLESv2"
@@ -332,6 +336,25 @@ jobs:
         path: out
         merge-multiple: true
 
+    # "Build <run> · <date>", the first line of the release text, with the
+    # date the apps were stamped with (see Package .ipa)
+    - name: Build stamp
+      id: stamp
+      run: |
+        set -e
+        DATE=$(python3 -I - out/*.ipa <<'PY'
+        import plistlib, re, sys, zipfile
+        for ipa in sys.argv[1:]:
+            z = zipfile.ZipFile(ipa)
+            for n in z.namelist():
+                if re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", n):
+                    print(plistlib.loads(z.read(n))["SWBuildDate"])
+                    sys.exit(0)
+        sys.exit(1)
+        PY
+        )
+        echo "line=Build ${{ github.run_number }} · $DATE" | tee -a "$GITHUB_OUTPUT"
+
     # Pushes and ordinary manual runs; a release run leaves ios-latest alone.
     - name: Publish to "ios-latest" release
       if: env.RELEASE_TAG == ''
@@ -342,6 +365,7 @@ jobs:
         prerelease: true
         make_latest: false
         body: |
+          ${{ steps.stamp.outputs.line }}
           Development builds, rebuilt after every push to the `ios` branch (run ${{ github.run_number }}, commit ${{ github.sha }}). They may not have been tried yet. For the latest release and how to install it, see ${{ github.server_url }}/${{ github.repository }}/releases/latest
           serioussam-ios.ipa = The First Encounter, serioussamse-ios.ipa = The Second Encounter.
           Sideload one, then copy your own game data into Files > On My iPhone > Sam FE / Sam SE.
@@ -373,6 +397,7 @@ jobs:
           *) PRERELEASE=false; LATEST=true ;;
         esac
         echo "Release \"$RELEASE_TITLE $VERSION\", prerelease $PRERELEASE, latest $LATEST"
+        { echo "${{ steps.stamp.outputs.line }}"; echo; cat ios/RELEASE_NOTES.md; } > release-notes.md
         {
           echo "name=$RELEASE_TITLE $VERSION"
           echo "prerelease=$PRERELEASE"
@@ -388,7 +413,7 @@ jobs:
         tag_name: ${{ env.RELEASE_TAG }}
         target_commitish: ${{ github.sha }}
         name: ${{ steps.rel.outputs.name }}
-        body_path: ios/RELEASE_NOTES.md
+        body_path: release-notes.md
         prerelease: ${{ steps.rel.outputs.prerelease }}
         make_latest: ${{ steps.rel.outputs.latest }}
         files: release/*.ipa

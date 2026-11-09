@@ -3376,7 +3376,7 @@ static int IOSTouch_FpsUnderTray(void)
 // instead (lower down, where it could lie over USE or JUMP on a small screen,
 // so only as a last resort). It is only words: not a button, nothing finds
 // it, and it moves nothing.
-#define IOSTOUCH_VERSION_H 12.0
+#define IOSTOUCH_VERSION_H 14.0
 static void IOSTouch_VersionCentre(double fHalfW, double *px, double *py)
 {
   *px = (_rTrayBack.x0 + _rTrayBack.x1) * 0.5;
@@ -3617,22 +3617,24 @@ static void IOSTouch_ResetTouches(int bReading)
 #define IOSTOUCH_LOOKSCALE_DEFAULTS_KEY @"iosTouchLookScale"
 #define IOSTOUCH_MAXFPS_DEFAULTS_KEY @"iosTouchMaxFps"
 
-// The app's version as its Info.plist says (ios_app.cmake sets both):
-// "v0.1.57", with the build number after it, "v0.1.57 (57)", when that is
-// there and says something else
+// The build stamp, "build 80 · Nov 9": the CI run number and the build's
+// date (UTC), which the workflow writes into Info.plist as SWBuildNumber and
+// SWBuildDate (YYYY-MM-DD); "build dev" for a build without them
 static NSString *IOSTouch_VersionText(void)
 {
   NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
-  id ver = [info objectForKey:@"CFBundleShortVersionString"];
-  id build = [info objectForKey:@"CFBundleVersion"];
-  if (![ver isKindOfClass:[NSString class]] || [ver length] == 0) ver = @"?";
-  // Sam's version already ends in the build number (0.1.<run>): add it in
-  // brackets only when it isn't there
-  if ([build isKindOfClass:[NSString class]] && [build length] > 0 && ![build isEqualToString:ver] &&
-      ![ver hasSuffix:[@"." stringByAppendingString:build]]) {
-    return [NSString stringWithFormat:@"v%@ (%@)", ver, build];
+  id num = [info objectForKey:@"SWBuildNumber"];
+  id date = [info objectForKey:@"SWBuildDate"];
+  if ([num isKindOfClass:[NSNumber class]]) num = [num stringValue];
+  if (![num isKindOfClass:[NSString class]] || [num length] == 0) return @"build dev";
+  int y = 0, m = 0, d = 0;
+  static const char *const months[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  if ([date isKindOfClass:[NSString class]] && sscanf([date UTF8String], "%d-%d-%d", &y, &m, &d) == 3 &&
+      m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+    return [NSString stringWithFormat:@"build %@ \u00B7 %s %d", num, months[m - 1], d];
   }
-  return [NSString stringWithFormat:@"v%@", ver];
+  return [NSString stringWithFormat:@"build %@", num];
 }
 
 // Tilt aiming's motion manager (one for the app, as Apple asks) and the
@@ -3976,7 +3978,7 @@ static CAShapeLayer *IOSTouch_MakeHoldRing(CGFloat r)
     versionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     versionLabel.textAlignment = NSTextAlignmentCenter;
     versionLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.55];
-    versionLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
+    versionLabel.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightMedium];
     versionLabel.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.6];
     versionLabel.shadowOffset = CGSizeMake(0, 1);
     versionLabel.text = IOSTouch_VersionText();
