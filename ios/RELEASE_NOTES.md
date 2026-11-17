@@ -15,7 +15,7 @@
   into a visible one.
 -->
 
-**Serious Sam Classic for iOS v0.3**: unofficial iPhone builds of *Serious Sam: The First Encounter* and *Serious Sam: The Second Encounter*, running on Croteam's open-source Serious Engine 1 (by way of [tx00100xt/SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic)), with on-screen touch controls made for them.
+**Serious Sam Classic for iOS v0.4**: unofficial iPhone builds of *Serious Sam: The First Encounter* and *Serious Sam: The Second Encounter*, running on Croteam's open-source Serious Engine 1 (by way of [tx00100xt/SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic)), with on-screen touch controls made for them.
 
 **You need your own copy of the game; no game files are included.** You copy the game's files from your PC copy of The First Encounter or The Second Encounter onto your iPhone (see *Install*).
 
@@ -23,18 +23,41 @@
 
 **New here?** *Known limitations*, *Requirements* and *Install* are near the bottom of this page, just above the download.
 
-### What's in ios-v0.3
+### What's in ios-v0.4
 
-**New since ios-v0.2**, in both apps, Sam FE and Sam SE:
+**New since ios-v0.3**, in both apps, Sam FE and Sam SE:
+
+- **Drawing through Metal:** the games now draw through ANGLE, which runs on Metal, Apple's modern graphics system, instead of Apple's old OpenGL ES. It's meant to take work off the phone's processor, for steadier frame rates in big fights (not measured on an iPhone yet). It needs iOS 18 or newer; on older iOS, or if ANGLE can't start, the games quietly use Apple's OpenGL ES as before.
+- **120 frames a second:** hold the tray's **FPS** (hold MENU for the tray) to switch between 60 (the default) and 120. It helps on iPhones with a 120 Hz screen, such as the Pro models since the iPhone 13 Pro. See *MENU and its hidden tray* below.
+- **LOOK, a speed for looking around by dragging:** hold MENU for its tray, and **LOOK** is now at its left end. Each tap makes dragging turn the view faster, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x, 2.5x and 3x, then round to 0.5x again. Hold it to go back to 1x, the default. See *Moving and looking* below.
+- **The cheat's LEVEL opens a list of the levels:** tap **LEVEL** in MENU's tray (while the cheat is on) and every level of the game is listed, numbered, with its name, and the one you're playing ticked. Tap one to go there. No more holding LEVEL to count. See *The cheat* below.
+- **Sound with the phone on silent:** the games now play their sound and music even with the phone set to silent. Turn it down with the volume buttons.
+- **Fixed: in a network game, a player who joined someone else's game couldn't look around,** neither by dragging nor by tilting the phone (moving worked). Now they can. The host, and single player, weren't affected. Sorry to anyone who tried co-op with ios-v0.3.
+- **Which build is this?** Under MENU's tray, in small letters, is the build number and the day it was made, for example *build 41 · Nov 17*. Please give it when you report a bug.
+- **The apps now need iOS 15 or newer** (ios-v0.3 was built for iOS 14 and newer). They're built with the newest Xcode.
+- **Install and update from SideStore or AltStore:** this project now has a source you add to them once, then install and update both apps there. See *Install* below.
+
+What hasn't changed: the camera, network games, the cheat (apart from LEVEL), moving, the weapon wheel, quick save and quick load, tilt aiming, the envelope and the HUD all work as in ios-v0.3.
+
+**This release has had less testing than ios-v0.3.** Nothing new in it has been confirmed on an iPhone yet. The new drawing, the 60/120 switch and the network fix were tested on a computer (the drawing and the frame cap against a stand-in for ANGLE, the network fix with the real game files); LOOK, the list of levels, sound on silent and the build label were built but not tried. See *Known limitations*.
+
+**Added in ios-v0.3** (if you're coming from ios-v0.2), in both apps:
 
 - **CAMERA:** a camera button in the top row. Tap it for a photo, hold it for a **selfie** with the enemies around you posing, slide it sideways for a **burst**, slide it down for **Action Freeze** (stop the game and move the camera round it) or up for a **cinematic burst** (five photos as the camera sweeps round the action). Photos go to your Photos app. See *The camera* below.
 - **Network games:** the games' own multiplayer now works on iPhone, with the touch controls. Play with friends on the **same Wi-Fi** (host a game, and the others find it with *SEARCH LAN* or join by its address), or join a server on the internet. See *Network games* below.
 - **Typing in the menus:** the iPhone keyboard now comes up for the game's text boxes, such as a player's name, a save's name or a server's address.
 - **A cheat, `sithewok`:** god mode, every weapon with ammo that never runs out, flying, walking through walls, being caught when you fall into a pit, and a level picker. Switch it on from MENU's tray, or type `sithewok` in the console. In a network game it only works if the host allows it. See *The cheat* below.
+- MENU's tray got more buttons then: CAMERA, CHEAT and, while the cheat is on, LEVEL.
 
-What hasn't changed: moving, looking, the weapon wheel, quick save and quick load, tilt aiming, the envelope and the HUD all work as in ios-v0.2. MENU's tray has more buttons now (CAMERA, CHEAT and, while the cheat is on, LEVEL).
+**What makes this port fun**, if you're new:
 
-**This release has had less testing than ios-v0.2.** Everything new in it was tested on a computer, with the real game files and simulated touches, and some of it on an iPhone, but not all of it on an iPhone yet: see *Known limitations*.
+- **Touch controls made for Serious Sam:** a move stick wherever your left thumb lands, drag anywhere to look, and FIRE, JUMP, USE and CROUCH under your right thumb. Sam is played running, so a short push is already full speed.
+- **A weapon wheel:** slide off NEXT WPN or PREV WPN and every weapon you carry is laid out round your thumb, with its HUD icon and ammo. In single player the game holds still while you pick.
+- **Selfies with the horde:** hold CAMERA and up to 48 of the nearest enemies pose round Sam, frozen in moves from their own animations. Or slide it down for **Action Freeze**: the fight stops and you fly the camera round it.
+- **Tilt aiming**, fine aiming by turning the phone, if you want it (OFF, TOUCH or ALWAYS).
+- **Quick save and quick load** on a short hold, so a stray tap can't wipe out your progress.
+- **Co-op, scorematch and fragmatch** with friends on the same Wi-Fi, with the games' own network play (see *Known limitations*: it's had little testing).
+- **A cheat for relaxed play**, `sithewok`: god mode, endless ammo, flying, walking through walls, and a list of every level to jump to.
 
 ---
 
@@ -47,7 +70,7 @@ Where everything is (on a phone, turn it sideways to see the whole picture):
 ```
  SCORE   power-ups  CHEAT CAMERA  HIGH SCORE  envelope   QUICK  QUICK  MENU
  NEXT  PREV                                              SAVE   LOAD
- WPN   WPN     [SENS] [GYRO] [FPS] [camera] [CHEAT] [LEVEL] [keyboard]
+ WPN   WPN  [LOOK] [SENS] [GYRO] [FPS] [camera] [CHEAT] [LEVEL] [keyboard]
                               (MENU's tray, while it's open)
 
                                                                     BOMB
@@ -66,7 +89,8 @@ Exact positions shift a little to fit your screen, the camera cutout and the HUD
 - **Speed:** a short push is already full speed, because Sam is played running. Push only a little for slower, careful steps.
 - **Look:** drag anywhere else that isn't a button, which mostly means the right side. A second finger on the left side, while your thumb is on the stick, looks too.
 - **Dragging on FIRE, CROUCH, USE, JUMP or ZOOM also turns the view**, so if your thumb lands on one while you're aiming, just keep dragging. You can hold FIRE and aim with the same thumb.
-- **Dragging works like the mouse**, so the game's mouse settings change it: *SENSITIVITY* and *INVERT LOOK* in *OPTIONS > PLAYERS AND CONTROLS > CUSTOMIZE CONTROLS*.
+- **Look speed:** hold **MENU** and tap **LOOK** in its tray to make dragging turn the view faster. Each tap goes on to the next speed, **0.5x, 0.75x, 1x** (the default), **1.25x, 1.5x, 2x, 2.5x, 3x**, and after 3x round to 0.5x; the button shows the speed (for example *LOOK 1x*). **Hold LOOK** until its ring fills (about half a second) to go back to 1x: the phone gives a thump and the top of the screen says *Look sensitivity back to the default, 1x*. The app remembers it. It changes dragging only, not tilt aiming (that's **SENS**).
+- **Dragging also works like the mouse**, so the game's mouse settings change it too: *SENSITIVITY* and *INVERT LOOK* in *OPTIONS > PLAYERS AND CONTROLS > CUSTOMIZE CONTROLS*.
 - You can also aim by turning the phone: see *Tilt aiming* below.
 
 #### Buttons
@@ -135,20 +159,22 @@ While it's open:
 
 | Tray button | What it does |
 | --- | --- |
+| **LOOK** | How fast dragging turns the view: **0.5x** to **3x**, **1x** by default. Hold it to go back to 1x. See *Moving and looking*. |
 | **SENS** | Tilt aiming's sensitivity: **1.0x**, **1.5x** (the default), **2.0x** or **3.0x**. At 1.0x the view turns as far as the phone does. Dimmed while GYRO is off. |
 | **GYRO** | Tilt aiming: **OFF** (the default), **TOUCH** or **ALWAYS**. Edged in yellow while tilt aiming is on. See *Tilt aiming* below. |
-| **FPS** | Shows or hides a frame-rate counter next to QUICK SAVE. Edged in yellow while it's on. |
+| **FPS** | Tap: shows or hides a frame-rate counter next to QUICK SAVE (edged in yellow while it's on). Hold it until its ring fills (about half a second): switches between **60** (the default) and **120** frames a second. See below. |
 | **Camera** (the camera symbol) | Shows or hides CAMERA in the top row. Edged in yellow while CAMERA shows. Hold it for CAMERA's options (see *The camera*). |
 | **CHEAT** | Switches the cheat on and shows the CHEAT button, or, tapped again, leaves cheat mode. Edged in yellow while the CHEAT button shows. See *The cheat*. |
-| **LEVEL** | Only while the cheat is on, in single player: hold it to pick a level. See *The cheat*. |
+| **LEVEL** | Only while the cheat is on, in single player: tap it for a list of the levels, to go to one. See *The cheat*. |
 | **Keyboard** (the keyboard symbol) | Opens the game's console with the iPhone keyboard, for console commands. |
 
-- SENS and GYRO show their setting on the button (for example *SENS 1.5x*, *GYRO OFF*).
-- Under the tray, in small dim letters, is the version of the app you're running, for example *v0.1.57*: the last number is the build, so you can tell which test build is on your phone. It's only a label, not a button. While CAMERA's options are open, it moves to the left to stay out of their way.
+- LOOK, SENS, GYRO and FPS show their setting on the button (for example *LOOK 1x*, *SENS 1.5x*, *GYRO OFF*, *FPS 60*).
+- **60 or 120 frames a second:** hold the tray's **FPS** to switch. The phone gives a thump and the top of the screen says *120 FPS: smoother, uses more battery* or *60 FPS: cooler, uses less battery*. 120 only makes a difference on iPhones with a 120 Hz (ProMotion) screen, such as the Pro models since the iPhone 13 Pro; on other iPhones the game stays at 60. The app remembers it.
+- Under the tray, in small letters, is the build you're running and the day it was made, for example *build 41 · Nov 17*, so you can tell which build is on your phone (say it when you report a bug). It's only a label, not a button. While CAMERA's options are open, it moves to the left to stay out of their way.
 - Either keep your thumb down, slide it onto a tray button and lift, or lift first and then tap one.
-- Each tap on **SENS** or **GYRO** moves on to the next setting, and the tray stays open so you can tap again. The tray closes after **FPS**, the camera symbol, **CHEAT** or the keyboard, or when you touch anywhere else. That touch still counts: touching FIRE closes the tray and fires. Touching MENU again only closes it.
+- Each tap on **LOOK**, **SENS** or **GYRO** moves on to the next setting, and the tray stays open so you can tap again. The tray closes after **FPS**, the camera symbol, **CHEAT**, **LEVEL** or the keyboard, or when you touch anywhere else. That touch still counts: touching FIRE closes the tray and fires. Touching MENU again only closes it.
 - If you slide off MENU while holding it, nothing happens.
-- The app **remembers SENS, GYRO, FPS, CAMERA (and its options) and whether CHEAT shows** for next time.
+- The app **remembers LOOK, SENS, GYRO, FPS (the counter and 60 or 120), CAMERA (and its options) and whether CHEAT shows** for next time.
 - **While the console is open**, only MENU shows, edged in yellow. Tap it (or the tray's keyboard button) to close the console and the keyboard and get back to the game.
 
 #### Tilt aiming (gyro)
@@ -163,7 +189,7 @@ Good to know:
 
 - **The view never springs back.** There's no "straight ahead" position: however you hold the phone when you start is where you start from.
 - Tilting the top edge of the screen toward you looks up, even with *INVERT LOOK* on.
-- **At 1.0x the view turns as far as the phone does.** The game's mouse settings don't change tilt aiming: use **SENS**. Very slow drifts are damped on purpose, so a phone held still doesn't creep. In The Second Encounter, the sniper scope's zoom slows it down, as it slows every turn.
+- **At 1.0x the view turns as far as the phone does.** The game's mouse settings and **LOOK** don't change tilt aiming: use **SENS**. Very slow drifts are damped on purpose, so a phone held still doesn't creep. In The Second Encounter, the sniper scope's zoom slows it down, as it slows every turn.
 - Tilt aiming pauses while the weapon wheel or MENU's tray is open. It's off in the menus, NETRICSA and the console, while the game is paused or loading, and while you're out of the app.
 - On a device without a motion sensor, GYRO says **NO GYRO** and does nothing.
 
@@ -266,10 +292,10 @@ A cheat for when you just want to enjoy the levels. It gives you, all at once: *
 
 **The level picker: LEVEL**, in MENU's tray, right after CHEAT (only while the cheat is on, in single player):
 
-- **Hold LEVEL.** After half a second it shows **1**, then counts on, **2, 3, ...**, one every 0.4 seconds, with a tick and *Level 2 of 15* at the top of the screen. After the last level it starts again at 1.
-- **Lift your finger on it** to go to that level: it starts as a new game at the same difficulty, with the weapon you had in your hands.
-- **To cancel**, slide off LEVEL before you lift, or close the tray. A quick tap only says *Hold LEVEL to count levels*.
-- The First Encounter has 15 levels to pick from, The Second Encounter 13.
+- **Tap LEVEL.** A list of the game's levels opens, in order and numbered, each with its name and, under it, its file. The level you're playing is ticked, and the list starts there. Drag it to scroll. The game holds still while the list is open.
+- **Tap a level** to go there: it starts as a new game at the same difficulty, with the weapon you had in your hands, and the top of the screen says *Loading level 5* (or whichever).
+- **To close the list** without going anywhere, tap the **X** or anywhere off the list. It also closes by itself if the cheat goes off.
+- The names come from your own game files. The First Encounter has 15 levels to pick from, The Second Encounter 13.
 
 **Leaving cheat mode:** hold MENU and tap **CHEAT** in the tray again: the cheat goes off and its button goes away. The app remembers whether the CHEAT button shows, but the cheat itself is **off each time you open the app**.
 
@@ -315,13 +341,17 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 
 ### Known limitations
 
-- **New in this release, and not all of it tried on an iPhone yet:** the camera has been used on an iPhone (and its selfies improved since, from photos taken there), but the network games, the cheat and the LEVEL button have so far been tested only on a computer, with the real game files and simulated touches. If something goes wrong, please report it (see *Found a bug?*).
-- **Network games:** tested on a computer, with a game hosted and joined on the same network, *SEARCH LAN*, joining by address, and a dedicated server, in both games. Not tried yet: two iPhones playing together, an iPhone with a PC, and the internet server list (*SEARCH INTERNET*). iOS doesn't let apps installed this way send a network-wide broadcast, so *SEARCH LAN* asks each address on your Wi-Fi in turn instead, which takes a few seconds and finds games on the usual ports only (25600 to 25604).
+**Sorry about the bugs.** This is an unofficial beta, and it will have bugs. Back up your saves now and then (see *Install*), and if something goes wrong, please tell us (see *Found a bug?*): every report helps.
+
+- **New in this release, and not confirmed on an iPhone yet:** the new drawing (ANGLE on Metal) and the 60/120 switch were tested on a computer against a stand-in for ANGLE, not with the real thing on a phone. If the game looks wrong or won't start after updating, please report it: the app falls back to Apple's OpenGL ES on its next start if the last start stopped while ANGLE was setting up. LOOK, the list of levels, sound on silent and the build label were built but not tried at all yet, not even on a computer. The fix for players who join someone else's game was tested on a computer, with the real game files and a host and a joining player in both games, but not yet on two phones. The apps built with the newest Xcode for iOS 15 haven't been confirmed on a phone yet either.
+- **From ios-v0.3:** the camera has been used on an iPhone, but the network games and the cheat have so far been tested only on a computer, with the real game files and simulated touches.
+- **Installing from the source in SideStore or AltStore is new** and hasn't been tried with these apps yet. If it doesn't work for you, download the `.ipa` files below and install them as before.
+- **Network games are the least tested part, and may not work for you. Sorry if they let you down.** In ios-v0.3 a player who joined someone else's game couldn't look around at all; that's fixed now. So far network games have been tested only on a computer, with a game hosted and joined on the same network, *SEARCH LAN*, joining by address, and a dedicated server, in both games. Not tried yet: two iPhones playing together, an iPhone with a PC, and the internet server list (*SEARCH INTERNET*). iOS doesn't let apps installed this way send a network-wide broadcast, so *SEARCH LAN* asks each address on your Wi-Fi in turn instead, which takes a few seconds and finds games on the usual ports only (25600 to 25604).
 - **The First Encounter has had less testing than The Second Encounter.** If something goes wrong in Sam FE, please report it.
 - **NETRICSA by touch needs the envelope**, so keep the HUD's messages box on.
 - **Leaving the app doesn't save your game**, only your settings.
 - **Limited testing so far:** Sam SE and Sam FE have each been played on one iPhone so far. Not tried yet: iPads; older iOS versions (both apps are built for iOS 15 and newer); game controllers, hardware keyboards, mice and trackpads; game files from other editions (*Serious Sam Classics: Revolution*, the HD remakes, CD and non-English versions); PC saves on the phone, or phone saves on PC; restoring a backup of your saves; whether installing a newer version with your sideloading tool keeps your files.
-- **The HUD on narrower iPhones:** with the HUD set larger than normal, or the legacy HUD, a layout check found that the messages count or a boss's health bar can sit under QUICK SAVE, and the armour icon under the notch or Dynamic Island. On the smallest iPhones (the size of the first iPhone SE), the messages count and the boss's health bar can sit under QUICK SAVE at the normal HUD size too, and the open tray covers the CHEAT button. This hasn't been seen on a phone.
+- **The HUD on narrower iPhones:** with the HUD set larger than normal, or the legacy HUD, a layout check found that the messages count or a boss's health bar can sit under QUICK SAVE, and the armour icon under the notch or Dynamic Island. On the smallest iPhones (the size of the first iPhone SE), the messages count and the boss's health bar can sit under QUICK SAVE at the normal HUD size too, and the open tray covers the CHEAT button. This hasn't been seen on a phone. The tray is one button wider in this release (LOOK), which hasn't been checked on those screens.
 
 ### Requirements
 
@@ -329,12 +359,18 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 - **Your own PC copy of the game**, for its game files. You'll need the computer it's installed on, to copy them to your iPhone.
   - For **Sam FE**, *Serious Sam: The First Encounter*: its six `.gro` files and its `Levels`, `Help` and `Demos` folders, listed under *Install*, about 380 MB in the copy this was tested with.
   - For **Sam SE**, *Serious Sam: The Second Encounter*: the eight `.gro` files listed under *Install* and the `Help` folder, about 410 MB in the copy this was tested with.
-- A **sideloading tool or signing service** (something that installs apps from outside the App Store) that can install an app file (`.ipa`) you give it, for example Signulous. The `.ipa` files aren't signed for your iPhone, so they can't be installed without one.
+- A **sideloading tool or signing service** (something that installs apps from outside the App Store) that can install an app file (`.ipa`) you give it, for example Signulous. The `.ipa` files aren't signed for your iPhone, so they can't be installed without one. SideStore and AltStore (AltStore Classic, not AltStore PAL) can also install them from this project's source (see *Install*). With a free Apple ID, apps have to be re-signed every 7 days, and you can have only 3 sideloaded apps at a time: SideStore or AltStore itself counts as one, and Sam FE and Sam SE count as one each.
 
 ### Install
 
+**With SideStore or AltStore (easiest):** set one of them up first, with its own instructions. Then, on your iPhone, tap **[Add to SideStore](https://sithewok13-dev.github.io/serious-sam/#add-sidestore)** or **[Add to AltStore](https://sithewok13-dev.github.io/serious-sam/#add-altstore)**. Or open it, go to *Sources*, tap **+** and paste this address: `https://raw.githubusercontent.com/sithewok13-dev/SeriousSamClassic/ios/altsource.json` (AltStore here means AltStore Classic: AltStore PAL can't install these apps.)
+
+The source, *Serious Sam Classic for iPhone*, lists **Sam FE** (The First Encounter) and **Sam SE** (The Second Encounter). Install the one for your game, or both, then carry on from step 3 below. You update the apps there too.
+
+**Or with any sideloading tool or signing service:**
+
 1. Download the `.ipa` for your game, below: **`serioussam-ios.ipa`** for The First Encounter, or **`serioussamse-ios.ipa`** for The Second Encounter (*se* after *serioussam*, as in Sam SE). To play both games, download both and do each step for each app.
-2. Install it with your sideloading tool or signing service, following that tool's own instructions (whether iOS asks you to trust a developer or to turn on Developer Mode depends on the tool). On your home screen the app is called **Sam FE** (The First Encounter) or **Sam SE** (The Second Encounter). Both have the same icon, so tell them apart by the name. Its version shows as 0.1 followed by a build number, even though this release is v0.3: that's expected.
+2. Install it with your sideloading tool or signing service, following that tool's own instructions (whether iOS asks you to trust a developer or to turn on Developer Mode depends on the tool). On your home screen the app is called **Sam FE** (The First Encounter) or **Sam SE** (The Second Encounter). Both have the same icon, so tell them apart by the name. Its version shows as 0.1 followed by a build number, even though this release is v0.4: that's expected.
 3. **Open the app once.** With no game files yet, it shows a *Fatal Error* box saying *Game data not found*. Tap OK and the app closes. That's expected: by then the app has made its folder for your files, *On My iPhone > Sam FE* or *On My iPhone > Sam SE* in the Files app.
 4. On your computer, open the folder the game is installed in, and find:
    - **for Sam FE (The First Encounter):** all the `.gro` files, `1_00c.gro`, `1_00c_scripts.gro`, `1_00c_Logo.gro`, `1_00_ExtraTools.gro`, `1_00_music.gro` and `1_04_patch.gro`, and the `Levels`, `Help` and `Demos` folders. **Don't leave out `Levels`:** The First Encounter's levels are in it, not in the `.gro` files.
@@ -351,18 +387,22 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 **Your saves** are in the Files app, in the app's own folder: *On My iPhone > Sam FE* or *Sam SE*, then *SaveGame > Player0*, with quick saves in its `Quick` folder. Your player profile is in the app's *Players* folder. As two separate apps, Sam FE and Sam SE each keep their own files, saves and settings.
 
 - **Back up** now and then by copying `SaveGame` and `Players` somewhere safe (for example iCloud Drive), and always before you delete or reinstall an app: deleting an app deletes its folder, game files and saves included.
-- The SENS, GYRO, FPS, CAMERA and CHEAT-button settings are kept by iOS, not in the app's folder. Photos go to your Photos app (or, without Photos access, to the app's *Screenshots* folder).
-- **If something goes wrong:** `SeriousSam.log` and `Output.log`, directly in the app's folder (next to the `.gro` files), say what the game was doing. Copy them out before you open the app again, because each start empties them. **Found a bug?** Report it at https://github.com/sithewok13-dev/SeriousSamClassic/issues with both log files attached, and say which game, which iPhone and iOS version you have and what you were doing. It's an iOS build of its own, so please report its problems there, not to the upstream SeriousSamClassic project.
+- The LOOK, SENS, GYRO, FPS, CAMERA and CHEAT-button settings are kept by iOS, not in the app's folder. Photos go to your Photos app (or, without Photos access, to the app's *Screenshots* folder).
+- **If something goes wrong:** `SeriousSam.log` and `Output.log`, directly in the app's folder (next to the `.gro` files), say what the game was doing. Copy them out before you open the app again, because each start empties them. Attach both to a bug report (see *Found a bug?* below).
 
 **Download:** under *Assets* below: `serioussam-ios.ipa` is The First Encounter (Sam FE), and `serioussamse-ios.ipa` is The Second Encounter (Sam SE). The *iOS latest build* prerelease, also on the Releases page, is rebuilt automatically after every code change, before anyone has tried it: use this release.
+
+**Found a bug?** Please report it at https://github.com/sithewok13-dev/SeriousSamClassic/issues and not to the upstream SeriousSamClassic project, and say you're on **ios-v0.4** and which build: hold MENU and it's under the tray, for example *build 41 · Nov 17* (your sideloading tool shows the version as 0.1 and that build number). Attach `SeriousSam.log` and `Output.log` (see *If something goes wrong* above), and say which game, which iPhone and iOS version you have and what you were doing.
 
 ---
 
 Unofficial builds. Serious Sam: The First Encounter, Serious Sam: The Second Encounter and Serious Engine 1 are by Croteam, who released the engine's source code (Serious Engine 1.10) under the GNU GPL v2. These builds are based on [tx00100xt/SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic). They are not an official Croteam release, and they are not affiliated with or endorsed by Croteam or Devolver Digital. No game files are included.
 
-These apps are free software under the GNU GPL v2 (https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/LICENSE). Their source code, iOS changes included, is the `ios` branch: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios (this release is the tag `ios-v0.3`: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios-v0.3).
+**Thank you** to everyone whose work these apps stand on: [Croteam](https://github.com/Croteam-official/Serious-Engine), for making Serious Sam and for releasing Serious Engine 1's source code to everyone in 2016; [tx00100xt](https://github.com/tx00100xt), who keeps [SeriousSamClassic](https://github.com/tx00100xt/SeriousSamClassic) alive and building on Linux, the BSDs, macOS and more, and whose widescreen support for the menus, NETRICSA and the HUD every iPhone screen needs; and the people who first brought the engine beyond Windows and whose work SeriousSamClassic carries on: [Ryan C. Gordon](https://github.com/icculus) (the first Linux port), [ptitSeb](https://github.com/ptitSeb) (ARM and handheld ports, and gl4es, which these apps draw with), [Daniel Gibson](https://github.com/DanielGibson), [zcaliptium](https://github.com/zcaliptium) and the other contributors in its change log (https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/CHANGELOG.old). Thanks also to the SDL, ANGLE and Xiph.Org (Ogg Vorbis) projects. The iPhone parts are this fork's own; any bugs in them are ours, not theirs.
 
-The apps also include libraries under their own licences: SDL2 (zlib licence, https://github.com/libsdl-org/SDL/blob/release-2.30.8/LICENSE.txt), gl4es (MIT licence, https://github.com/ptitSeb/gl4es/blob/ec16bedd8819c475326f4f1a3063772c6d986e06/LICENSE), which turns the engine's OpenGL into the iPhone's OpenGL ES, and libogg and libvorbis by the Xiph.Org Foundation (BSD-style licence, https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libvorbis/COPYING and https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libogg/COPYING), which decode the music.
+These apps are free software under the GNU GPL v2 (https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/LICENSE). Their source code, iOS changes included, is the `ios` branch: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios (this release is the tag `ios-v0.4`: https://github.com/sithewok13-dev/SeriousSamClassic/tree/ios-v0.4).
+
+The apps also include libraries under their own licences: SDL2 (zlib licence, https://github.com/libsdl-org/SDL/blob/release-2.30.8/LICENSE.txt), gl4es (MIT licence, https://github.com/ptitSeb/gl4es/blob/ec16bedd8819c475326f4f1a3063772c6d986e06/LICENSE), which turns the engine's OpenGL into the iPhone's OpenGL ES, ANGLE by Google and its contributors (BSD 3-clause licence, https://github.com/google/angle/blob/4b7308a36376199c095ccb0ab69b773daa8b9fbe/LICENSE), which runs that OpenGL ES on Metal, and libogg and libvorbis by the Xiph.Org Foundation (BSD-style licence, https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libvorbis/COPYING and https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/SamTSE/Sources/External/libogg/COPYING), which decode the music.
 
 <details>
 <summary>Licence notices</summary>
@@ -408,5 +448,17 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \`\`AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 **SDL2** (zlib licence): Copyright (C) 1997-2024 Sam Lantinga.
+
+**ANGLE** (BSD 3-clause licence):
+
+Copyright 2018 The ANGLE Project Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+- Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+- Neither the name of TransGaming Inc., Google Inc., 3DLabs Inc. Ltd., nor the names of their contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
