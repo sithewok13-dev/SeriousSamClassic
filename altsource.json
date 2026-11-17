@@ -24,13 +24,14 @@
       ],
       "versions": [
         {
-          "version": "0.1.40",
-          "buildVersion": "40",
-          "date": "2026-11-09",
-          "localizedDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
-          "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussam-ios.ipa",
-          "size": 8139548,
-          "sha256": "b4b31f5e1db12cefc4b12d737b4667e3333a0a45901f2ff17fced170b7f5ab9c",
+          "version": "0.1.42",
+          "buildVersion": "42",
+          "marketingVersion": "ios-v0.4",
+          "date": "2026-11-17T02:58:24Z",
+          "localizedDescription": "New since ios-v0.3, in both apps, Sam FE and Sam SE:\n- Drawing through Metal\n- 120 frames a second\n- LOOK, a speed for looking around by dragging\n- The cheat's LEVEL opens a list of the levels\n- Sound with the phone on silent\n- Fixed: in a network game, a player who joined someone else's game couldn't look around\n- Which build is this?\n- The apps now need iOS 15 or newer\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/releases/tag/ios-v0.4",
+          "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-v0.4/serioussam-ios.ipa",
+          "size": 8141550,
+          "sha256": "9c2fbff9d5e55e7c45ff5ddcec84d0b99be6cab4c044b35bc73cceaa18fed257",
           "minOSVersion": "15.0"
         },
         {
@@ -53,11 +54,11 @@
           "NSLocalNetworkUsageDescription": "Multiplayer finds, hosts and joins games on your Wi-Fi."
         }
       },
-      "version": "0.1.40",
-      "versionDate": "2026-11-09",
-      "versionDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
-      "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussam-ios.ipa",
-      "size": 8139548
+      "version": "0.1.42",
+      "versionDate": "2026-11-17T02:58:24Z",
+      "versionDescription": "New since ios-v0.3, in both apps, Sam FE and Sam SE:\n- Drawing through Metal\n- 120 frames a second\n- LOOK, a speed for looking around by dragging\n- The cheat's LEVEL opens a list of the levels\n- Sound with the phone on silent\n- Fixed: in a network game, a player who joined someone else's game couldn't look around\n- Which build is this?\n- The apps now need iOS 15 or newer\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/releases/tag/ios-v0.4",
+      "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-v0.4/serioussam-ios.ipa",
+      "size": 8141550
     },
     {
       "name": "Sam SE",
@@ -77,13 +78,14 @@
       ],
       "versions": [
         {
-          "version": "0.1.40",
-          "buildVersion": "40",
-          "date": "2026-11-09",
-          "localizedDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
-          "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussamse-ios.ipa",
-          "size": 8405050,
-          "sha256": "d1e8e6fad38b1bf90aac408b8b16e58a9fc758c5869ae004bfaaa3896b363b5f",
+          "version": "0.1.42",
+          "buildVersion": "42",
+          "marketingVersion": "ios-v0.4",
+          "date": "2026-11-17T02:58:24Z",
+          "localizedDescription": "New since ios-v0.3, in both apps, Sam FE and Sam SE:\n- Drawing through Metal\n- 120 frames a second\n- LOOK, a speed for looking around by dragging\n- The cheat's LEVEL opens a list of the levels\n- Sound with the phone on silent\n- Fixed: in a network game, a player who joined someone else's game couldn't look around\n- Which build is this?\n- The apps now need iOS 15 or newer\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/releases/tag/ios-v0.4",
+          "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-v0.4/serioussamse-ios.ipa",
+          "size": 8404903,
+          "sha256": "a0bfa2a33a8eefff76802423ee9e96f2403e5c8b59db30b9257da278069e4ecd",
           "minOSVersion": "15.0"
         },
         {
@@ -106,11 +108,11 @@
           "NSLocalNetworkUsageDescription": "Multiplayer finds, hosts and joins games on your Wi-Fi."
         }
       },
-      "version": "0.1.40",
-      "versionDate": "2026-11-09",
-      "versionDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
-      "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussamse-ios.ipa",
-      "size": 8405050
+      "version": "0.1.42",
+      "versionDate": "2026-11-17T02:58:24Z",
+      "versionDescription": "New since ios-v0.3, in both apps, Sam FE and Sam SE:\n- Drawing through Metal\n- 120 frames a second\n- LOOK, a speed for looking around by dragging\n- The cheat's LEVEL opens a list of the levels\n- Sound with the phone on silent\n- Fixed: in a network game, a player who joined someone else's game couldn't look around\n- Which build is this?\n- The apps now need iOS 15 or newer\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/releases/tag/ios-v0.4",
+      "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-v0.4/serioussamse-ios.ipa",
+      "size": 8404903
     }
   ],
   "news": []
