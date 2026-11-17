@@ -295,6 +295,18 @@ jobs:
         /usr/libexec/PlistBuddy -c "Add :SWBuildNumber string ${{ github.run_number }}" \
           -c "Add :SWBuildDate string $(date -u +%F)" "$APP/Info.plist"
         plutil -lint "$APP/Info.plist"
+        # No game data in the app: of the game's own kinds of files, only the
+        # repo's SE1_10b.gro and ModEXT.txt may be bundled (players copy in
+        # their own game files)
+        BAD=$(find "$APP" \( -iname '*.gro' -o -iname '*.wld' -o -iname '*.dem' -o -iname '*.mdl' \
+                 -o -iname '*.tex' -o -iname '*.wav' -o -iname '*.ogg' -o -iname '*.mp3' -o -iname '*.zip' \
+                 -o -iname '*.exe' -o -iname '*.bin' -o -type d -iname Levels -o -type d -iname Demos \) \
+                 ! -path "$APP/SE1_10b.gro" -print)
+        if [ -n "$BAD" ]; then
+          echo "::error::Game data found in the app (it must not be bundled):"
+          echo "$BAD"
+          exit 1
+        fi
         # ANGLE is in the app (loaded at run time), Apple's OpenGL ES is still linked
         ls "$APP/Frameworks/libEGL.framework/libEGL" "$APP/Frameworks/libGLESv2.framework/libGLESv2"
         otool -L "$APP/$(basename "$APP" .app)" | grep OpenGLES
@@ -327,7 +339,10 @@ jobs:
       if: env.RELEASE_TAG != ''
       uses: actions/checkout@v4
       with:
-        sparse-checkout: ios/RELEASE_NOTES.md
+        # (and the script that adds the release to the AltStore source)
+        sparse-checkout: |
+          ios/RELEASE_NOTES.md
+          ios/update_altsource.py
         sparse-checkout-cone-mode: false
         persist-credentials: false
 
@@ -418,3 +433,52 @@ jobs:
         make_latest: ${{ steps.rel.outputs.latest }}
         files: release/*.ipa
         fail_on_unmatched_files: true
+
+    # Release runs: the AltStore / SideStore source (altsource.json, the one
+    # https://raw.githubusercontent.com/<repo>/ios/altsource.json serves) gets
+    # the release just published: an entry for each app with its version,
+    # build, size, SHA-256, date, download link and a summary of the notes
+    # (ios/update_altsource.py), committed to the ios branch. An entry that
+    # pointed at the ios-latest test build is dropped. The commit is made with
+    # GITHUB_TOKEN, which starts no workflow run (and is marked [skip ci]), so
+    # it doesn't rebuild ios-latest. continue-on-error: if anything here
+    # fails, the release (already out) still counts as a success.
+    - name: Add the release to the AltStore / SideStore source
+      if: env.RELEASE_TAG != ''
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SOURCE_BRANCH: ios
+      run: |
+        set -euo pipefail
+        trap 'echo "::warning::The AltStore / SideStore source was not updated for ${RELEASE_TAG}. The release itself is published; add it to altsource.json by hand (python3 ios/update_altsource.py)."' ERR
+        SRC="$RUNNER_TEMP/altsource"
+        rm -rf "$SRC"
+        git clone --quiet --depth 1 --branch "$SOURCE_BRANCH" \
+          "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$SRC"
+        git -C "$SRC" config user.name "github-actions[bot]"
+        git -C "$SRC" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        IPAS=()
+        for ipa in $RELEASE_IPAS; do IPAS+=(--ipa "release/$ipa"); done
+        for attempt in 1 2 3; do
+          # The script and the notes come from the commit just built; the
+          # source file from the newest ios branch
+          python3 -I ios/update_altsource.py --source "$SRC/altsource.json" \
+            --tag "$RELEASE_TAG" --notes ios/RELEASE_NOTES.md "${IPAS[@]}"
+          if git -C "$SRC" diff --quiet; then
+            echo "The source already has ${RELEASE_TAG}"
+            break
+          fi
+          git -C "$SRC" commit --quiet -am "iOS: add ${RELEASE_TAG} to the AltStore / SideStore source [skip ci]"
+          if git -C "$SRC" push --quiet origin "HEAD:${SOURCE_BRANCH}"; then
+            echo "Added ${RELEASE_TAG} to the source on ${SOURCE_BRANCH}"
+            break
+          fi
+          if [ "$attempt" = 3 ]; then
+            false # gives up (the warning above)
+          fi
+          # Someone pushed in between: start again from the new branch head
+          git -C "$SRC" fetch --quiet --depth 1 origin "$SOURCE_BRANCH"
+          git -C "$SRC" reset --quiet --hard FETCH_HEAD
+        done
+        rm -rf "$SRC"
