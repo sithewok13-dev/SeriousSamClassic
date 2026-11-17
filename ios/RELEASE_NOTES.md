@@ -39,8 +39,6 @@
 
 What hasn't changed: the camera, network games, the cheat (apart from LEVEL), moving, the weapon wheel, quick save and quick load, tilt aiming, the envelope and the HUD all work as in ios-v0.3.
 
-**This release has had less testing than ios-v0.3.** Nothing new in it has been confirmed on an iPhone yet. The new drawing, the 60/120 switch and the network fix were tested on a computer (the drawing and the frame cap against a stand-in for ANGLE, the network fix with the real game files); LOOK, the list of levels, sound on silent and the build label were built but not tried. See *Known limitations*.
-
 **Added in ios-v0.3** (if you're coming from ios-v0.2), in both apps:
 
 - **CAMERA:** a camera button in the top row. Tap it for a photo, hold it for a **selfie** with the enemies around you posing, slide it sideways for a **burst**, slide it down for **Action Freeze** (stop the game and move the camera round it) or up for a **cinematic burst** (five photos as the camera sweeps round the action). Photos go to your Photos app. See *The camera* below.
@@ -343,7 +341,6 @@ The HUD's messages box (an envelope with the number of unread messages) sits in 
 
 **Sorry about the bugs.** This is an unofficial beta, and it will have bugs. Back up your saves now and then (see *Install*), and if something goes wrong, please tell us (see *Found a bug?*): every report helps.
 
-- **New in this release, and not confirmed on an iPhone yet:** the new drawing (ANGLE on Metal) and the 60/120 switch were tested on a computer against a stand-in for ANGLE, not with the real thing on a phone. If the game looks wrong or won't start after updating, please report it: the app falls back to Apple's OpenGL ES on its next start if the last start stopped while ANGLE was setting up. LOOK, the list of levels, sound on silent and the build label were built but not tried at all yet, not even on a computer. The fix for players who join someone else's game was tested on a computer, with the real game files and a host and a joining player in both games, but not yet on two phones. The apps built with the newest Xcode for iOS 15 haven't been confirmed on a phone yet either.
 - **From ios-v0.3:** the camera has been used on an iPhone, but the network games and the cheat have so far been tested only on a computer, with the real game files and simulated touches.
 - **Installing from the source in SideStore or AltStore is new** and hasn't been tried with these apps yet. If it doesn't work for you, download the `.ipa` files below and install them as before.
 - **Network games are the least tested part, and may not work for you. Sorry if they let you down.** In ios-v0.3 a player who joined someone else's game couldn't look around at all; that's fixed now. So far network games have been tested only on a computer, with a game hosted and joined on the same network, *SEARCH LAN*, joining by address, and a dedicated server, in both games. Not tried yet: two iPhones playing together, an iPhone with a PC, and the internet server list (*SEARCH INTERNET*). iOS doesn't let apps installed this way send a network-wide broadcast, so *SEARCH LAN* asks each address on your Wi-Fi in turn instead, which takes a few seconds and finds games on the usual ports only (25600 to 25604).

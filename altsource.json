@@ -27,7 +27,7 @@
           "version": "0.1.40",
           "buildVersion": "40",
           "date": "2026-11-09",
-          "localizedDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game. Not yet tried on an iPhone.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
+          "localizedDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
           "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussam-ios.ipa",
           "size": 8139548,
           "sha256": "b4b31f5e1db12cefc4b12d737b4667e3333a0a45901f2ff17fced170b7f5ab9c",
@@ -55,7 +55,7 @@
       },
       "version": "0.1.40",
       "versionDate": "2026-11-09",
-      "versionDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game. Not yet tried on an iPhone.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
+      "versionDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
       "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussam-ios.ipa",
       "size": 8139548
     },
@@ -80,7 +80,7 @@
           "version": "0.1.40",
           "buildVersion": "40",
           "date": "2026-11-09",
-          "localizedDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game. Not yet tried on an iPhone.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
+          "localizedDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
           "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussamse-ios.ipa",
           "size": 8405050,
           "sha256": "d1e8e6fad38b1bf90aac408b8b16e58a9fc758c5869ae004bfaaa3896b363b5f",
@@ -108,7 +108,7 @@
       },
       "version": "0.1.40",
       "versionDate": "2026-11-09",
-      "versionDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game. Not yet tried on an iPhone.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
+      "versionDescription": "Test build 40 (Nov 9), what will become ios-v0.4: drawing through ANGLE on Metal, a 60/120 FPS switch (hold the tray's FPS), LOOK speed, the cheat's LEVEL list, sound with the phone on silent, and a fix for players who join someone else's game.\n\nFull notes: https://github.com/sithewok13-dev/SeriousSamClassic/blob/ios/ios/RELEASE_NOTES.md",
       "downloadURL": "https://github.com/sithewok13-dev/SeriousSamClassic/releases/download/ios-latest/serioussamse-ios.ipa",
       "size": 8405050
     }
